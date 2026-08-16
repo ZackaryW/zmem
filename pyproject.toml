@@ -1,0 +1,32 @@
+[project]
+name = "zmem"
+version = "0.1.0"
+description = "Git-history memory client and extension host for the zmem cache service"
+readme = "README.md"
+authors = [
+    { name = "ZackaryW", email = "gitzackw@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "behave>=1.3.0",
+    "pytest>=8.4.0",
+    "ruff>=0.12.0",
+]
+
+[project.scripts]
+zmem = "zmem:main"
+zmem-extension-host = "zmem.host:main"
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"

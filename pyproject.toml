@@ -1,6 +1,6 @@
 [project]
 name = "zmem"
-version = "0.1.0"
+version = "1.0.0"
 description = "Git-history memory client and extension host for the zmem cache service"
 readme = "README.md"
 authors = [

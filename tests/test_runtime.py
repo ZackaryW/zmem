@@ -97,9 +97,9 @@ def test_explicit_or_environment_binary_must_exist(tmp_path: Path) -> None:
 def _manifest(paths: RuntimePaths, **updates: object) -> RuntimeManifest:
     values = {
         "manifest_version": 1,
-        "release_version": "0.1.0",
-        "binary_version": "0.1.0",
-        "host_version": "0.1.0",
+        "release_version": "1.0.0",
+        "binary_version": "1.0.0",
+        "host_version": "1.0.0",
         "protocol_version": 2,
         "schema_version": 2,
         "sha256": "a" * 64,
@@ -155,7 +155,7 @@ def test_stage_runtime_builds_complete_versionless_target(tmp_path: Path) -> Non
         paths,
         binary,
         Path(__file__).parents[1] / "src" / "zmem",
-        ServiceIdentity("0.1.0", "0.1.0", 1, 1),
+        ServiceIdentity("1.0.0", "1.0.0", 1, 1),
     )
     staged_paths = RuntimePaths.for_root(paths.home, staged.root)
     assert staged_paths.binary.read_bytes() == b"native"

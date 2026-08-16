@@ -34,7 +34,7 @@ def test_unsupported_platform_is_actionable() -> None:
 def _manifest(asset: dict[str, object] | None = None) -> dict[str, object]:
     return {
         "manifest_version": 1,
-        "release_version": "0.1.0",
+        "release_version": "1.0.0",
         "protocol_version": 2,
         "schema_version": 2,
         "assets": [
@@ -50,17 +50,17 @@ def _manifest(asset: dict[str, object] | None = None) -> dict[str, object]:
 
 
 def test_release_manifest_is_strict_typed_and_version_matched() -> None:
-    manifest = ReleaseManifest.from_mapping(_manifest(), expected_release="0.1.0")
+    manifest = ReleaseManifest.from_mapping(_manifest(), expected_release="1.0.0")
     assert manifest.asset_for("x86_64-pc-windows-msvc").size == 4
 
     with pytest.raises(ValueError, match="unknown"):
-        ReleaseManifest.from_mapping(_manifest() | {"unknown": True}, expected_release="0.1.0")
+        ReleaseManifest.from_mapping(_manifest() | {"unknown": True}, expected_release="1.0.0")
     with pytest.raises(ValueError, match="expected release"):
         ReleaseManifest.from_mapping(_manifest(), expected_release="0.2.0")
     with pytest.raises(ValueError, match="duplicate"):
         value = _manifest()
         value["assets"] = [value["assets"][0], value["assets"][0]]  # type: ignore[index]
-        ReleaseManifest.from_mapping(value, expected_release="0.1.0")
+        ReleaseManifest.from_mapping(value, expected_release="1.0.0")
 
 
 @pytest.mark.parametrize("name", ["../zmem-svc", "folder/zmem-svc", ".", ""])

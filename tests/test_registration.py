@@ -13,9 +13,9 @@ def _manifest(tmp_path: Path) -> tuple:
     manifest = RuntimeManifest.from_mapping(
         {
             "manifest_version": 1,
-            "release_version": "0.1.0",
-            "binary_version": "0.1.0",
-            "host_version": "0.1.0",
+            "release_version": "1.0.0",
+            "binary_version": "1.0.0",
+            "host_version": "1.0.0",
             "protocol_version": 2,
             "schema_version": 2,
             "sha256": "a" * 64,

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Query zmem Memory"
+  short_description: "Retrieve relevant and current repository memory"
+  default_prompt: "Use $zmem-query-memory to find the most relevant and up-to-date repository memory for this task."

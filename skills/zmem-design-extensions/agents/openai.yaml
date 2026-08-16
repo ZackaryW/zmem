@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design zmem Extensions"
+  short_description: "Create safe zmem expanders and hooks"
+  default_prompt: "Use $zmem-design-extensions to design a new zmem expander or hook for this behavior."

@@ -17,5 +17,5 @@
 
 ## 4. Specification and Complete Verification
 
-- [ ] 4.1 Reconcile the mature behavior into the canonical `service-management` specification without replacing scenarios that lack qualifying exact BDD targets.
+- [x] 4.1 Reconcile the mature behavior into the canonical `service-management` specification without replacing scenarios that lack qualifying exact BDD targets.
 - [ ] 4.2 Check the lock, supported interpreter, Ruff lint and format gates, complete unit suite, all independently owned Behave capability roots, and a clean `uv_build` package build.

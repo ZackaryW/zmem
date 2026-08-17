@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import uuid
@@ -22,6 +23,10 @@ from zmem.utils.protocol import PROTOCOL_VERSION
 MANIFEST_VERSION = 1
 SCHEMA_VERSION = 2
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+
+
+class RuntimeAssemblyError(RuntimeError):
+    pass
 
 
 def _binary_name() -> str:
@@ -221,17 +226,36 @@ class ServiceIdentity:
 
 
 def assemble_host(target: Path, package_root: Path) -> Path:
-    venv.EnvBuilder(with_pip=False, clear=True).create(target)
-    python = _host_python(target)
-    completed = subprocess.run(
-        [python, "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    site_packages = Path(completed.stdout.strip())
-    destination = site_packages / "zmem"
-    shutil.copytree(package_root, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "_native"))
+    try:
+        venv.EnvBuilder(with_pip=False, clear=True, symlinks=os.name != "nt").create(target)
+        python = _host_python(target)
+        completed = subprocess.run(
+            [python, "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        site_packages = Path(completed.stdout.strip())
+        destination = site_packages / "zmem"
+        shutil.copytree(package_root, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "_native"))
+    except subprocess.CalledProcessError as exc:
+        if exc.returncode < 0:
+            signal_number = -exc.returncode
+            try:
+                signal_name = signal.Signals(signal_number).name
+            except ValueError:
+                cause = f"signal {signal_number}"
+            else:
+                cause = f"{signal_name} ({signal_number})"
+            outcome = f"terminated by {cause}"
+        else:
+            outcome = f"exited with status {exc.returncode}"
+        detail = exc.stderr.strip() if isinstance(exc.stderr, str) else ""
+        if detail:
+            outcome = f"{outcome}: {detail}"
+        raise RuntimeAssemblyError(f"extension-host Python probe {outcome}") from exc
+    except OSError as exc:
+        raise RuntimeAssemblyError(f"could not assemble extension-host Python: {exc}") from exc
     return python
 
 
@@ -244,24 +268,32 @@ def stage_runtime(
     installation_id = uuid.uuid4().hex
     staged_root = paths.staging_root / installation_id
     staged_paths = RuntimePaths.for_root(paths.home, staged_root)
-    staged_paths.binary_dir.mkdir(parents=True, exist_ok=False)
-    shutil.copy2(binary, staged_paths.binary)
-    staged_paths.binary.chmod(staged_paths.binary.stat().st_mode | 0o111)
-    assemble_host(staged_paths.host_dir, package_root)
-    manifest = RuntimeManifest(
-        manifest_version=MANIFEST_VERSION,
-        release_version=identity.release_version,
-        binary_version=identity.binary_version,
-        host_version=identity.release_version,
-        protocol_version=identity.protocol_version,
-        schema_version=identity.schema_version,
-        sha256=sha256_file(staged_paths.binary),
-        installation_id=installation_id,
-        binary=paths.binary,
-        host=paths.host_python,
-        installed_at=datetime.now(UTC).isoformat(),
-    )
-    manifest.write_atomic(staged_paths.manifest)
+    try:
+        staged_paths.binary_dir.mkdir(parents=True, exist_ok=False)
+        shutil.copy2(binary, staged_paths.binary)
+        staged_paths.binary.chmod(staged_paths.binary.stat().st_mode | 0o111)
+        assemble_host(staged_paths.host_dir, package_root)
+        manifest = RuntimeManifest(
+            manifest_version=MANIFEST_VERSION,
+            release_version=identity.release_version,
+            binary_version=identity.binary_version,
+            host_version=identity.release_version,
+            protocol_version=identity.protocol_version,
+            schema_version=identity.schema_version,
+            sha256=sha256_file(staged_paths.binary),
+            installation_id=installation_id,
+            binary=paths.binary,
+            host=paths.host_python,
+            installed_at=datetime.now(UTC).isoformat(),
+        )
+        manifest.write_atomic(staged_paths.manifest)
+    except Exception as exc:
+        _remove_runtime_item(staged_root)
+        if isinstance(exc, RuntimeAssemblyError):
+            raise
+        if isinstance(exc, (OSError, subprocess.SubprocessError)):
+            raise RuntimeAssemblyError(f"could not stage managed runtime: {exc}") from exc
+        raise
     return StagedRuntime(staged_root, manifest)
 
 

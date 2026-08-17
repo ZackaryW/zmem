@@ -26,14 +26,6 @@ Host assembly occurs after an installation-specific staging directory and native
 - `features/service-management/service-management.feature::Install into isolated paths without startup registration` is the public-system contract for successful host assembly. Its scenario-selected bindings invoke the installed zmem CLI with isolated paths, assemble and start the real managed runtime, and verify healthy stable binary and host paths. The scenario intentionally does not assert whether the host executable is a symlink.
 - `Staged Python host aborts before activation` is classified as non-BDD. Deterministically terminating the interpreter that is creating its own nested host environment cannot be induced through the established public CLI without adding a test-only product hook or requiring an externally broken Python installation. Focused runtime and service-boundary tests will execute the signal diagnostic, installation-scoped cleanup, and public error translation, while the full OpenSpec scenario remains the specification authority.
 
-## Disposable Utility Plan
-
-- Add `RuntimeAssemblyError(RuntimeError)` in `zmem.utils.runtime` as the typed boundary for expected host and staging construction failures. Service composition catches this type; unrelated programming errors remain visible.
-- Keep `assemble_host(target: Path, package_root: Path) -> Path`. Construct `venv.EnvBuilder(with_pip=False, clear=True, symlinks=os.name != "nt")`; probe the created interpreter for `purelib`; translate `CalledProcessError` into `RuntimeAssemblyError` with a known signal name and number for negative return codes or an exit status for positive return codes, appending non-empty stderr.
-- Keep `stage_runtime(paths: RuntimePaths, binary: Path, package_root: Path, identity: ServiceIdentity) -> StagedRuntime`. After allocating the UUID root, guard binary copy, host assembly, and manifest creation as one transaction; on any exception remove only that UUID root, then re-raise typed assembly failures and wrap expected filesystem/subprocess failures as `RuntimeAssemblyError`.
-- At `_replace_runtime`, translate `RuntimeAssemblyError` from `stage_runtime` into `ServiceManagementError("could not assemble managed runtime: ...")` before any active daemon stop or activation.
-- Prove the seams independently with the focused runtime and service tests named in tasks 2.1 and 3.1. Remove this disposable plan after those utilities are mature and independently GREEN.
-
 ## Decisions
 
 ### Match the native venv executable strategy

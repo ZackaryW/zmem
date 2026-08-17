@@ -5,9 +5,9 @@
 
 ## 2. Runtime Utility TDD
 
-- [ ] 2.1 Prove focused RED coverage for POSIX linked host executables, known-signal probe diagnostics, and removal of only the failed installation staging root.
-- [ ] 2.2 Configure standard-library host creation for POSIX symlinks and Windows-native behavior, translate interpreter probe failures, and make `stage_runtime` cleanup transactional.
-- [ ] 2.3 Run the focused runtime unit tests GREEN.
+- [x] 2.1 Prove focused RED coverage for POSIX linked host executables, known-signal probe diagnostics, and removal of only the failed installation staging root.
+- [x] 2.2 Configure standard-library host creation for POSIX symlinks and Windows-native behavior, translate interpreter probe failures, and make `stage_runtime` cleanup transactional.
+- [x] 2.3 Run the focused runtime unit tests GREEN.
 
 ## 3. Service Composition
 

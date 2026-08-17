@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from zmem.utils.runtime import (
+    RuntimeAssemblyError,
     RuntimeManifest,
     RuntimePaths,
     ServiceIdentity,
@@ -136,6 +138,8 @@ def test_sha256_streams_file(tmp_path: Path) -> None:
 def test_host_assembly_copies_package_outside_current_environment(tmp_path: Path) -> None:
     package_root = Path(__file__).parents[1] / "src" / "zmem"
     python = assemble_host(tmp_path / "host", package_root)
+    if os.name != "nt":
+        assert python.is_symlink()
     environment = os.environ.copy()
     environment.pop("PYTHONPATH", None)
     completed = subprocess.run(
@@ -146,6 +150,31 @@ def test_host_assembly_copies_package_outside_current_environment(tmp_path: Path
         check=True,
     )
     assert Path(completed.stdout.strip()).is_relative_to(tmp_path / "host")
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stderr", "expected"),
+    [
+        (-signal.SIGABRT, None, f"terminated by SIGABRT ({signal.SIGABRT})"),
+        (7, "missing runtime library\n", "exited with status 7: missing runtime library"),
+    ],
+)
+def test_host_assembly_reports_python_probe_failure(
+    monkeypatch,
+    tmp_path: Path,
+    returncode: int,
+    stderr: str | None,
+    expected: str,
+) -> None:
+    def abort(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.CalledProcessError(returncode, args[0], stderr=stderr)
+
+    monkeypatch.setattr("zmem.utils.runtime.subprocess.run", abort)
+
+    with pytest.raises(RuntimeAssemblyError) as exc_info:
+        assemble_host(tmp_path / "host", Path(__file__).parents[1] / "src" / "zmem")
+
+    assert expected in str(exc_info.value)
 
 
 def test_stage_runtime_builds_complete_versionless_target(tmp_path: Path) -> None:
@@ -164,6 +193,27 @@ def test_stage_runtime_builds_complete_versionless_target(tmp_path: Path) -> Non
     assert RuntimeManifest.read(staged_paths.manifest) == staged.manifest
     assert staged.manifest.binary == paths.binary
     assert staged.manifest.host == paths.host_python
+
+
+def test_stage_runtime_removes_partial_staging_after_host_failure(monkeypatch, tmp_path: Path) -> None:
+    paths = resolve_runtime_paths(tmp_path / "home", tmp_path / "runtime", environ={})
+    binary = tmp_path / "source.exe"
+    binary.write_bytes(b"native")
+
+    def fail(*args: object, **kwargs: object) -> Path:
+        raise RuntimeAssemblyError("extension-host Python probe terminated by SIGABRT (6)")
+
+    monkeypatch.setattr("zmem.utils.runtime.assemble_host", fail)
+
+    with pytest.raises(RuntimeAssemblyError, match="SIGABRT"):
+        stage_runtime(
+            paths,
+            binary,
+            Path(__file__).parents[1] / "src" / "zmem",
+            ServiceIdentity("1.0.0", "1.0.0", 1, 1),
+        )
+
+    assert not paths.staging_root.exists() or not any(paths.staging_root.iterdir())
 
 
 def test_activation_rolls_back_failed_healthcheck(tmp_path: Path) -> None:

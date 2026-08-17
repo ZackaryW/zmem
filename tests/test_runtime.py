@@ -45,6 +45,7 @@ def test_runtime_root_defaults_beneath_selected_home(tmp_path: Path) -> None:
     assert paths.manifest == paths.root / "runtime.json"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="packaged .exe discovery is Windows-specific")
 def test_binary_discovery_ladder(tmp_path: Path) -> None:
     explicit = tmp_path / "explicit.exe"
     environment_binary = tmp_path / "environment.exe"

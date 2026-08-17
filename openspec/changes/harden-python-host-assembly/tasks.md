@@ -1,7 +1,7 @@
 ## 1. Behavior Contract
 
-- [ ] 1.1 Trace the supported-POSIX installation behavior to the established `features/service-management/` public CLI surface and record a concrete non-BDD classification for any failure obligation that cannot be induced deterministically through that boundary.
-- [ ] 1.2 Keep any scenario-selected bindings capability-local and thin; do not assert the venv symlink implementation or specification wording through BDD.
+- [x] 1.1 Trace the supported-POSIX installation behavior to the established `features/service-management/` public CLI surface and record a concrete non-BDD classification for any failure obligation that cannot be induced deterministically through that boundary.
+- [x] 1.2 Keep any scenario-selected bindings capability-local and thin; do not assert the venv symlink implementation or specification wording through BDD.
 
 ## 2. Runtime Utility TDD
 

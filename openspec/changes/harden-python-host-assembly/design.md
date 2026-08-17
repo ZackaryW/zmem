@@ -21,6 +21,11 @@ Host assembly occurs after an installation-specific staging directory and native
 - Changing active runtime paths, metadata, the native protocol, startup registration, or release acquisition.
 - Adding an external environment-management dependency.
 
+## Behavior Shape
+
+- `features/service-management/service-management.feature::Install into isolated paths without startup registration` is the public-system contract for successful host assembly. Its scenario-selected bindings invoke the installed zmem CLI with isolated paths, assemble and start the real managed runtime, and verify healthy stable binary and host paths. The scenario intentionally does not assert whether the host executable is a symlink.
+- `Staged Python host aborts before activation` is classified as non-BDD. Deterministically terminating the interpreter that is creating its own nested host environment cannot be induced through the established public CLI without adding a test-only product hook or requiring an externally broken Python installation. Focused runtime and service-boundary tests will execute the signal diagnostic, installation-scoped cleanup, and public error translation, while the full OpenSpec scenario remains the specification authority.
+
 ## Decisions
 
 ### Match the native venv executable strategy

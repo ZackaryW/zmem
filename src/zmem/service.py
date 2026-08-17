@@ -18,6 +18,7 @@ from zmem.utils.registration import registration_plan
 from zmem.utils.release import acquire_release_binary
 from zmem.utils.runtime import (
     SCHEMA_VERSION,
+    RuntimeAssemblyError,
     RuntimeManifest,
     RuntimePaths,
     ServiceIdentity,
@@ -214,7 +215,10 @@ def _replace_runtime(
     identity = _binary_identity(source, paths)
     if identity.protocol_version != PROTOCOL_VERSION or identity.schema_version != SCHEMA_VERSION:
         raise ServiceManagementError("native service is incompatible with this zmem release")
-    staged = stage_runtime(paths, source, current_package_root(), identity)
+    try:
+        staged = stage_runtime(paths, source, current_package_root(), identity)
+    except RuntimeAssemblyError as exc:
+        raise ServiceManagementError(f"could not assemble managed runtime: {exc}") from exc
     old_manifest = _load_manifest(paths) if existing else None
     if old_manifest is not None and old_manifest.binary.is_file():
         _stop_binary(old_manifest.binary, paths)

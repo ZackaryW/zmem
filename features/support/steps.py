@@ -716,8 +716,12 @@ def step_install_isolated(context):
 def step_runtime_healthy(context):
     assert context.completed.returncode == 0, (context.completed.stdout, context.completed.stderr)
     assert context.payload["healthy"] is True and context.payload["compatible"] is True, context.payload
-    assert Path(context.payload["binary"]).parent.resolve() == (context.runtime_root / "binary").resolve()
-    assert Path(context.payload["host"]).resolve().is_relative_to((context.runtime_root / "host").resolve())
+    assert Path(context.payload["binary"]).parent.resolve() == (context.runtime_root / "binary").resolve(), (
+        context.payload
+    )
+    assert Path(context.payload["host"]).parent.resolve().is_relative_to((context.runtime_root / "host").resolve()), (
+        context.payload
+    )
 
 
 @then("runtime metadata records versions, checksum, protocol, schema, and installation identity")

@@ -3,11 +3,14 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 
 def before_scenario(context, _scenario) -> None:
+    executable_suffix = ".exe" if os.name == "nt" else ""
+    scripts_dir = Path(sys.executable).parent
     context.temp_root = Path(tempfile.mkdtemp(prefix="zmem-behave-"))
     context.repo = context.temp_root / "repo"
     context.home = context.temp_root / "home"
@@ -16,13 +19,12 @@ def before_scenario(context, _scenario) -> None:
     context.env["ZMEM_HOME"] = str(context.home)
     context.runtime_root = context.temp_root / "runtime"
     context.env["ZMEM_RUNTIME_ROOT"] = str(context.runtime_root)
-    context.env["ZMEM_SVC"] = str(
-        (Path(__file__).parents[3] / "zmem-cache" / "target" / "debug" / "zmem-svc.exe").resolve()
+    context.env.setdefault(
+        "ZMEM_SVC",
+        str((Path(__file__).parents[3] / "zmem-cache" / "target" / "debug" / f"zmem-svc{executable_suffix}").resolve()),
     )
-    context.env["ZMEM_EXTENSION_HOST"] = str(
-        (Path(__file__).parents[2] / ".venv" / "Scripts" / "zmem-extension-host.exe").resolve()
-    )
-    context.zmem_executable = Path(__file__).parents[2] / ".venv" / "Scripts" / "zmem.exe"
+    context.env["ZMEM_EXTENSION_HOST"] = str(scripts_dir / f"zmem-extension-host{executable_suffix}")
+    context.zmem_executable = scripts_dir / f"zmem{executable_suffix}"
 
 
 def after_scenario(context, _scenario) -> None:

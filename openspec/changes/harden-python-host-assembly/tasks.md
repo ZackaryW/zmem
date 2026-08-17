@@ -11,9 +11,9 @@
 
 ## 3. Service Composition
 
-- [ ] 3.1 Prove focused RED coverage that host assembly failures cross the service boundary as actionable `ServiceManagementError` results.
-- [ ] 3.2 Translate expected pre-activation assembly failures without stopping or changing an active runtime, then run focused service tests GREEN.
-- [ ] 3.3 Run the independently owned `features/service-management/` root through its established public CLI command.
+- [x] 3.1 Prove focused RED coverage that host assembly failures cross the service boundary as actionable `ServiceManagementError` results.
+- [x] 3.2 Translate expected pre-activation assembly failures without stopping or changing an active runtime, then run focused service tests GREEN.
+- [x] 3.3 Run the independently owned `features/service-management/` root through its established public CLI command.
 
 ## 4. Specification and Complete Verification
 

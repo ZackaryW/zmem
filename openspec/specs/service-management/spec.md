@@ -18,11 +18,19 @@ The `zmem service` command SHALL provide install, start, status, stop, upgrade, 
 - **THEN** zmem reports that the runtime and service are absent without installing or starting either one
 
 ### Requirement: Remote service acquisition is deterministic and verified
-When no explicit, configured, packaged, or PATH service binary is available, `zmem service install` and `upgrade` SHALL select the current platform from the release manifest at the exact `zmem` package version, SHALL verify the downloaded artifact's advertised length and SHA-256 digest, and SHALL validate its native release and protocol identity before activation. A failed selection, download, integrity check, or identity check SHALL leave the active runtime unchanged and report a meaningful nonzero failure.
+When no explicit, configured, packaged, or PATH service binary is available, `zmem service install` and `upgrade` SHALL inspect the published stable `zmem-cache` release inventory and select the greatest semantic version whose strict manifest includes the current platform and whose protocol and schema exactly equal the Python client's supported values. Drafts, prereleases, non-semantic tags, incompatible manifests, and releases without the current platform SHALL not be selected. The selected artifact's advertised length and SHA-256 digest and its native release, protocol, and schema identity SHALL be verified before activation. Discovery, selection, download, integrity, or identity failure SHALL leave the active runtime unchanged and report a meaningful nonzero failure. The Python package version and selected native release version SHALL be allowed to differ.
 
-#### Scenario: Install a version-matched service release
-- **WHEN** a user installs without a local binary source on a platform present in the exact-version release manifest
-- **THEN** zmem downloads, verifies, activates, starts, and reports the healthy compatible service artifact for that platform
+#### Scenario: Install newest compatible independent service release
+- **WHEN** published stable service releases include multiple versions and the greatest version compatible with the client supports the current platform
+- **THEN** zmem downloads, verifies, activates, starts, and reports that release even when its version differs from the Python package
+
+#### Scenario: Newer service release is incompatible
+- **WHEN** the newest published stable service release has a different protocol or schema and an older compatible release supports the current platform
+- **THEN** zmem skips the incompatible release and installs the greatest compatible release
+
+#### Scenario: No compatible service release exists
+- **WHEN** no published stable release has a valid matching protocol, schema, and current-platform artifact
+- **THEN** installation fails without replacing an existing runtime and identifies that no compatible native release was found
 
 #### Scenario: Reject a corrupt service artifact
 - **WHEN** a selected release artifact does not match the manifest's advertised integrity metadata
@@ -34,7 +42,14 @@ When no explicit, configured, packaged, or PATH service binary is available, `zm
 
 #### Scenario: Reject an unsupported platform
 - **WHEN** the current operating-system and architecture pair has no supported release target
-- **THEN** installation fails before downloading an artifact and identifies the unsupported pair
+- **THEN** installation fails before remote release discovery and identifies the unsupported pair
+
+### Requirement: Runtime metadata identifies independent components
+Managed runtime status SHALL report the Python host version and native binary version independently while retaining their shared protocol and schema compatibility identities. Runtime health SHALL depend on compatible protocol and schema values rather than equality between component release versions.
+
+#### Scenario: Compatible component versions differ
+- **WHEN** a managed runtime contains a Python host and native binary with different release versions but matching supported protocol and schema values
+- **THEN** status reports both versions and treats the runtime as compatible
 
 ### Requirement: Active runtime paths are stable and versionless
 The active runtime SHALL place the native service beneath `runtime/binary`, the persistent Python host beneath `runtime/host`, and typed release and compatibility metadata in the sibling `runtime/runtime.json`. Versions SHALL be recorded in metadata rather than active directory names.

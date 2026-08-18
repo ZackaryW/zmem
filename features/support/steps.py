@@ -20,6 +20,7 @@ from zmem.ext.hooks import HookRegistry
 from zmem.host import expand_request
 from zmem.utils.annotations import parse_annotations
 from zmem.utils.discovery import discover
+from zmem.utils.protocol import PROTOCOL_VERSION
 
 
 def _json_result(context) -> dict:
@@ -728,7 +729,6 @@ def step_runtime_healthy(context):
 def step_manifest_identity(context):
     manifest = json.loads((context.runtime_root / "runtime.json").read_text())
     required = {
-        "release_version",
         "binary_version",
         "host_version",
         "protocol_version",
@@ -737,6 +737,8 @@ def step_manifest_identity(context):
         "installation_id",
     }
     assert required <= manifest.keys()
+    assert manifest["manifest_version"] == 2
+    assert "release_version" not in manifest
 
 
 @given("a healthy isolated managed runtime")
@@ -835,7 +837,7 @@ def _release_target() -> str:
     return aliases[(system, machine)]
 
 
-def _serve_release(context, *, corrupt: bool) -> None:
+def _serve_release(context, *, corrupt: bool, newer_incompatible: bool = False) -> None:
     release = importlib.metadata.version("zmem")
     target = _release_target()
     name = f"zmem-svc-{target}" + (".exe" if target.endswith("windows-msvc") else "")
@@ -847,8 +849,8 @@ def _serve_release(context, *, corrupt: bool) -> None:
     manifest = {
         "manifest_version": 1,
         "release_version": release,
-        "protocol_version": 2,
-        "schema_version": 2,
+        "protocol_version": 3,
+        "schema_version": 3,
         "assets": [
             {
                 "target": target,
@@ -859,6 +861,16 @@ def _serve_release(context, *, corrupt: bool) -> None:
         ],
     }
     (release_dir / "release-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    inventory = [{"tag_name": f"v{release}", "draft": False, "prerelease": False}]
+    if newer_incompatible:
+        incompatible = "99.0.0"
+        incompatible_dir = context.temp_root / "releases" / f"v{incompatible}"
+        incompatible_dir.mkdir(parents=True)
+        incompatible_manifest = {**manifest, "release_version": incompatible, "protocol_version": 99}
+        (incompatible_dir / "release-manifest.json").write_text(json.dumps(incompatible_manifest), encoding="utf-8")
+        inventory.insert(0, {"tag_name": f"v{incompatible}", "draft": False, "prerelease": False})
+    (context.temp_root / "releases" / "inventory").write_text(json.dumps(inventory), encoding="utf-8")
 
     context.release_requests = []
 
@@ -878,17 +890,28 @@ def _serve_release(context, *, corrupt: bool) -> None:
     context.release_thread.start()
     port = context.release_server.server_address[1]
     context.env["ZMEM_SVC_RELEASE_ROOT"] = f"http://127.0.0.1:{port}"
-    context.expected_release_paths = {f"/v{release}/release-manifest.json", f"/v{release}/{name}"}
+    context.env["ZMEM_SVC_RELEASE_INVENTORY"] = f"http://127.0.0.1:{port}/inventory"
+    context.compatible_release = release
+    context.expected_release_paths = {"/inventory", f"/v{release}/release-manifest.json", f"/v{release}/{name}"}
+    if newer_incompatible:
+        context.expected_release_paths.add("/v99.0.0/release-manifest.json")
 
 
-@given("an exact-version service release for the current platform")
-def step_exact_release(context):
-    _serve_release(context, corrupt=False)
+@given("published stable service releases with a newer incompatible version")
+def step_compatible_releases(context):
+    _serve_release(context, corrupt=False, newer_incompatible=True)
 
 
 @given("a corrupt exact-version service release for the current platform")
 def step_corrupt_release(context):
     _serve_release(context, corrupt=True)
+
+
+@given("only incompatible stable service releases are published")
+def step_only_incompatible_releases(context):
+    _serve_release(context, corrupt=False, newer_incompatible=True)
+    inventory = [{"tag_name": "v99.0.0", "draft": False, "prerelease": False}]
+    (context.temp_root / "releases" / "inventory").write_text(json.dumps(inventory), encoding="utf-8")
 
 
 @when("I install from the release without platform registration")
@@ -907,8 +930,73 @@ def step_release_requested(context):
     assert context.expected_release_paths <= set(context.release_requests)
 
 
+@then("the greatest compatible service release is selected")
+def step_greatest_release_selected(context):
+    assert context.payload["binary_version"] == context.compatible_release
+    assert "/v99.0.0/release-manifest.json" in context.release_requests
+
+
+@then("runtime status reports independent binary and host versions")
+def step_independent_versions(context):
+    assert context.payload["binary_version"]
+    assert context.payload["host_version"]
+    assert "release_version" not in context.payload
+
+
+@given("an identified batch of commit messages")
+def step_identified_parser_batch(context):
+    context.extension_marker = context.temp_root / "extension-loaded"
+    extension = context.home / "ext" / "expanders" / "sentinel.py"
+    extension.parent.mkdir(parents=True)
+    extension.write_text(f"from pathlib import Path\nPath({str(context.extension_marker)!r}).write_text('loaded')\n")
+    context.batch_request = {
+        "protocol_version": PROTOCOL_VERSION,
+        "operation": "inspect_batch",
+        "items": [
+            {"id": "first", "message": "zmem(DECISION): one"},
+            {"id": "second", "message": "plain"},
+        ],
+    }
+
+
+@when("the batch is inspected through the extension-host entry point")
+def step_run_parser_batch_entry_point(context):
+    context.completed = subprocess.run(
+        [sys.executable, "-m", "zmem.host"],
+        input=json.dumps(context.batch_request),
+        env=context.env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    context.batch_response = json.loads(context.completed.stdout)
+
+
+@then("one same-order identified parser result is returned per message")
+def step_batch_results_ordered(context):
+    assert context.completed.returncode == 0, context.completed.stderr
+    assert [item["id"] for item in context.batch_response["inspections"]] == ["first", "second"]
+    assert [item["annotation_count"] for item in context.batch_response["inspections"]] == [1, 0]
+
+
+@then("no extension or hook is loaded")
+def step_batch_does_not_load_extensions(context):
+    assert not context.extension_marker.exists()
+
+
 @then("the corrupt upgrade fails and the previous runtime remains healthy")
 def step_corrupt_upgrade_preserved(context):
+    step_upgrade_preserved(context)
+
+
+@then("a no-compatible-release error is returned")
+def step_no_compatible_release(context):
+    assert context.completed.returncode != 0
+    assert "no compatible" in context.completed.stdout.lower()
+
+
+@then("the previous runtime remains healthy")
+def step_previous_runtime_healthy(context):
     step_upgrade_preserved(context)
 
 

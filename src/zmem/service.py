@@ -13,9 +13,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from zmem.utils import release as release_utils
 from zmem.utils.protocol import PROTOCOL_VERSION
 from zmem.utils.registration import registration_plan
-from zmem.utils.release import acquire_release_binary
 from zmem.utils.runtime import (
     SCHEMA_VERSION,
     RuntimeAssemblyError,
@@ -193,13 +193,25 @@ def install_or_upgrade(
     if source is not None:
         return _replace_runtime(paths, source=source, register=register, upgrade=upgrade, existing=existing)
     try:
-        with acquire_release_binary(
-            _package_version(),
+        releases = release_utils.iter_release_inventory(
+            release_utils.urlopen,
+            os.environ.get("ZMEM_SVC_RELEASE_INVENTORY", release_utils.DEFAULT_RELEASE_INVENTORY),
+        )
+        with release_utils.acquire_compatible_release_binary(
             paths.staging_root,
             expected_protocol=PROTOCOL_VERSION,
             expected_schema=SCHEMA_VERSION,
-        ) as downloaded:
-            return _replace_runtime(paths, source=downloaded, register=register, upgrade=upgrade, existing=existing)
+            releases=releases,
+            opener=release_utils.urlopen,
+        ) as acquired:
+            return _replace_runtime(
+                paths,
+                source=acquired.path,
+                expected_binary_version=acquired.version,
+                register=register,
+                upgrade=upgrade,
+                existing=existing,
+            )
     except ValueError as exc:
         raise ServiceManagementError(str(exc)) from exc
 
@@ -211,8 +223,11 @@ def _replace_runtime(
     register: bool,
     upgrade: bool,
     existing: bool,
+    expected_binary_version: str | None = None,
 ) -> dict[str, Any]:
     identity = _binary_identity(source, paths)
+    if expected_binary_version is not None and identity.binary_version != expected_binary_version:
+        raise ServiceManagementError("native service identity does not match its selected release")
     if identity.protocol_version != PROTOCOL_VERSION or identity.schema_version != SCHEMA_VERSION:
         raise ServiceManagementError("native service is incompatible with this zmem release")
     try:

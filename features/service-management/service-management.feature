@@ -24,6 +24,13 @@ Feature: Stable per-user service runtime management
     When I attempt to upgrade from the release
     Then the corrupt upgrade fails and the previous runtime remains healthy
 
+  Scenario: No compatible release preserves a healthy runtime
+    Given a healthy isolated managed runtime
+    And only incompatible stable service releases are published
+    When I attempt to upgrade from the release
+    Then a no-compatible-release error is returned
+    And the previous runtime remains healthy
+
   Scenario: Invalid replacement preserves the healthy runtime
     Given a healthy isolated managed runtime
     And an invalid replacement service artifact

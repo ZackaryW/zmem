@@ -37,3 +37,9 @@ Feature: Trusted Python expansion and hooks
     Given a loaded extension set
     When one trusted module source changes
     Then the extension-set identity changes
+
+  Scenario: Parser batch preserves identity and order
+    Given an identified batch of commit messages
+    When the batch is inspected through the extension-host entry point
+    Then one same-order identified parser result is returned per message
+    And no extension or hook is loaded

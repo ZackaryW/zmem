@@ -11,11 +11,12 @@ Feature: Stable per-user service runtime management
     Then a healthy compatible runtime uses stable binary and host paths
     And runtime metadata records versions, checksum, protocol, schema, and installation identity
 
-  Scenario: Install an exact-version release for the current platform
-    Given an exact-version service release for the current platform
+  Scenario: Install the newest compatible independent service release
+    Given published stable service releases with a newer incompatible version
     When I install from the release without platform registration
     Then a healthy compatible runtime uses stable binary and host paths
-    And the versioned manifest and selected platform artifact were requested
+    And the greatest compatible service release is selected
+    And runtime status reports independent binary and host versions
 
   Scenario: Corrupt release does not replace a healthy runtime
     Given a healthy isolated managed runtime

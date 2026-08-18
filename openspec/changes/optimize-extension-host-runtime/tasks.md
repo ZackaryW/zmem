@@ -19,7 +19,7 @@
 
 - [x] 4.1 Replace Python-package-version remote lookup with compatible release discovery while preserving every local binary precedence path
 - [x] 4.2 Report selected binary and host versions independently and retain exact protocol/schema health checks
-- [ ] 4.3 Run the python-extensions and service-management feature roots independently and complete supported-interpreter, lock, Ruff lint/format, pytest, and clean wheel/sdist build gates
+- [x] 4.3 Run the python-extensions and service-management feature roots independently and complete supported-interpreter, lock, Ruff lint/format, pytest, and clean wheel/sdist build gates
 
 ## 5. Documentation and release coordination
 

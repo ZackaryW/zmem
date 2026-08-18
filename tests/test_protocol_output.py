@@ -19,4 +19,4 @@ def test_protocol_rejects_wrong_version():
 
 
 def test_response_is_json_bytes():
-    assert b'"protocol_version":2' in encode_response({"entries": []})
+    assert b'"protocol_version":3' in encode_response({"entries": []})

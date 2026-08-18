@@ -19,9 +19,45 @@ from urllib.request import urlopen
 
 RELEASE_MANIFEST_VERSION = 1
 DEFAULT_RELEASE_ROOT = "https://github.com/ZackaryW/zmem-cache/releases/download"
+DEFAULT_RELEASE_INVENTORY = "https://api.github.com/repos/ZackaryW/zmem-cache/releases?per_page=100"
 MAX_RELEASE_MANIFEST_BYTES = 1024 * 1024
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 ASSET_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+STABLE_RELEASE_PATTERN = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
+COMPATIBILITY_CANDIDATE_ERRORS = (OSError, URLError, json.JSONDecodeError, TypeError, ValueError)
+
+
+def stable_release_version(tag: object) -> tuple[int, int, int] | None:
+    if not isinstance(tag, str):
+        return None
+    match = STABLE_RELEASE_PATTERN.fullmatch(tag)
+    return tuple(map(int, match.groups())) if match else None
+
+
+def iter_release_inventory(
+    opener: Callable[..., Any], url: str = DEFAULT_RELEASE_INVENTORY
+) -> Iterator[Mapping[str, object]]:
+    next_url: str | None = url
+    while next_url is not None:
+        try:
+            with opener(next_url, timeout=30) as response:
+                value = json.loads(_read_bounded(response, MAX_RELEASE_MANIFEST_BYTES))
+                link = getattr(response, "headers", {}).get("Link")
+        except (OSError, URLError, json.JSONDecodeError) as exc:
+            raise ValueError(f"could not enumerate zmem service releases: {exc}") from exc
+        if not isinstance(value, list):
+            raise TypeError("zmem service release inventory must be an array")
+        for release in value:
+            if not isinstance(release, Mapping):
+                raise TypeError("zmem service release inventory item must be an object")
+            yield release
+        next_url = None
+        if isinstance(link, str):
+            for part in link.split(","):
+                match = re.fullmatch(r'\s*<([^>]+)>;\s*rel="([^"]+)"\s*', part)
+                if match and match.group(2) == "next":
+                    next_url = match.group(1)
+                    break
 
 
 def platform_target(system: str, machine: str) -> str:
@@ -146,6 +182,86 @@ class ReleaseManifest:
             if asset.target == target:
                 return asset
         raise ValueError(f"release {self.release_version} does not support target {target}")
+
+
+@dataclass(frozen=True)
+class SelectedRelease:
+    version: str
+    manifest: ReleaseManifest
+    asset: ReleaseAsset
+    release_url: str
+
+
+@dataclass(frozen=True)
+class AcquiredBinary:
+    path: Path
+    version: str
+
+
+def select_compatible_release(
+    releases: Iterator[Mapping[str, object]] | list[Mapping[str, object]],
+    *,
+    target: str,
+    protocol: int,
+    schema: int,
+    opener: Callable[..., Any] = urlopen,
+    release_root: str = DEFAULT_RELEASE_ROOT,
+) -> SelectedRelease:
+    candidates: list[tuple[tuple[int, int, int], str]] = []
+    for release in releases:
+        tag = release.get("tag_name")
+        version = stable_release_version(tag)
+        if version is None or release.get("draft") is not False or release.get("prerelease") is not False:
+            continue
+        candidates.append((version, str(tag)))
+    for numeric, tag in sorted(candidates, reverse=True):
+        version = ".".join(map(str, numeric))
+        release_url = f"{release_root.rstrip('/')}/{tag}"
+        try:
+            with opener(f"{release_url}/release-manifest.json", timeout=30) as response:
+                value = json.loads(_read_bounded(response, MAX_RELEASE_MANIFEST_BYTES))
+            manifest = ReleaseManifest.from_mapping(value, expected_release=version)
+            if manifest.protocol_version != protocol or manifest.schema_version != schema:
+                continue
+            asset = manifest.asset_for(target)
+        except COMPATIBILITY_CANDIDATE_ERRORS:
+            continue
+        return SelectedRelease(version, manifest, asset, release_url)
+    raise ValueError("no compatible zmem service release is available for this platform")
+
+
+@contextmanager
+def acquire_compatible_release_binary(
+    staging_root: Path,
+    *,
+    expected_protocol: int,
+    expected_schema: int,
+    releases: Iterator[Mapping[str, object]],
+    environ: Mapping[str, str] = os.environ,
+    system: str | None = None,
+    machine: str | None = None,
+    opener: Callable[..., Any] = urlopen,
+) -> Iterator[AcquiredBinary]:
+    target = platform_target(system or sys.platform, machine or platform.machine())
+    root = environ.get("ZMEM_SVC_RELEASE_ROOT", DEFAULT_RELEASE_ROOT).rstrip("/")
+    selected = select_compatible_release(
+        releases,
+        target=target,
+        protocol=expected_protocol,
+        schema=expected_schema,
+        opener=opener,
+        release_root=root,
+    )
+    staging_root.mkdir(parents=True, exist_ok=True)
+    try:
+        with tempfile.TemporaryDirectory(prefix="download-", dir=staging_root) as temporary:
+            destination = Path(temporary) / selected.asset.name
+            with opener(f"{selected.release_url}/{selected.asset.name}", timeout=60) as response:
+                copy_verified(response, destination, selected.asset)
+            destination.chmod(destination.stat().st_mode | 0o111)
+            yield AcquiredBinary(destination, selected.version)
+    except (OSError, URLError, TypeError, ValueError) as exc:
+        raise ValueError(f"could not acquire compatible zmem service release: {exc}") from exc
 
 
 def copy_verified(source: BinaryIO, destination: Path, asset: ReleaseAsset) -> None:

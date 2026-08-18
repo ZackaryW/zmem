@@ -114,6 +114,34 @@ def inspect_request(payload: dict) -> dict:
     }
 
 
+def inspect_batch_request(payload: dict) -> dict:
+    if set(payload) != {"protocol_version", "operation", "items"} and set(payload) != {"items"}:
+        raise ProtocolError("inspect_batch request has unknown or missing fields")
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise ProtocolError("inspect_batch items must be a non-empty array")
+    validated: list[tuple[str, str]] = []
+    identities: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {"id", "message"}:
+            raise ProtocolError("inspect_batch item must contain only id and message")
+        identity = item["id"]
+        message = item["message"]
+        if not isinstance(identity, str) or not identity:
+            raise ProtocolError("inspect_batch item id must be a non-empty string")
+        if identity in identities:
+            raise ProtocolError("inspect_batch item ids must be unique")
+        if not isinstance(message, str):
+            raise ProtocolError("inspect_batch item message must be a string")
+        identities.add(identity)
+        validated.append((identity, message))
+    inspections = []
+    for identity, message in validated:
+        inspection = inspect_request({"message": message})
+        inspections.append({"id": identity, **inspection})
+    return {"inspections": inspections}
+
+
 def main() -> None:
     try:
         request = decode_request(sys.stdin.buffer.read())
@@ -123,6 +151,8 @@ def main() -> None:
             response = identity_request(request)
         elif request["operation"] == "inspect":
             response = inspect_request(request)
+        elif request["operation"] == "inspect_batch":
+            response = inspect_batch_request(request)
         else:
             raise ProtocolError("unsupported operation")
         sys.stdout.buffer.write(encode_response(response))

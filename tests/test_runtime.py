@@ -129,6 +129,19 @@ def test_manifest_is_strict_typed_and_atomic(tmp_path: Path) -> None:
         RuntimeManifest.from_mapping(manifest.to_mapping() | {"protocol_version": "1"})
 
 
+def test_manifest_reads_v1_and_writes_independent_version_2(tmp_path: Path) -> None:
+    paths = resolve_runtime_paths(tmp_path / "home", tmp_path / "runtime", environ={})
+    legacy = _manifest(paths, release_version="1.0.0", binary_version="0.9.0", host_version="1.0.0")
+    assert legacy.host_version == "1.0.0"
+    assert legacy.binary_version == "0.9.0"
+    written = legacy.to_mapping()
+    assert written["manifest_version"] == 2
+    assert "release_version" not in written
+    round_trip = RuntimeManifest.from_mapping(written)
+    assert round_trip.host_version == "1.0.0"
+    assert round_trip.binary_version == "0.9.0"
+
+
 def test_sha256_streams_file(tmp_path: Path) -> None:
     artifact = tmp_path / "artifact"
     artifact.write_bytes(b"zmem")

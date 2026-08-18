@@ -18,7 +18,7 @@ def test_upgrade_reports_host_assembly_failure_without_touching_active_runtime(m
     monkeypatch.setattr("zmem.service.find_service_binary", lambda *args, **kwargs: source)
     monkeypatch.setattr(
         "zmem.service._binary_identity",
-        lambda *args, **kwargs: ServiceIdentity("1.0.0", "1.0.0", 2, 2),
+        lambda *args, **kwargs: ServiceIdentity("1.0.0", "1.0.0", 3, 3),
     )
     monkeypatch.setattr("zmem.service._stop_binary", lambda binary, paths: stopped.append(binary))
 

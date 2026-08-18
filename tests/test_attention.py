@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zmem.host import inspect_request
+from zmem.host import inspect_batch_request, inspect_request
 from zmem.utils.attention import (
     AttentionPolicy,
     attention_metadata,
@@ -53,6 +53,23 @@ zmem(CANCEL): malformed"""
     )
     assert response["annotation_count"] == 4
     assert response["parser_diagnostics"] == ["invalid CANCEL annotation at index 5"]
+
+
+def test_batch_inspection_is_strict_complete_and_ordered() -> None:
+    response = inspect_batch_request(
+        {"items": [{"id": "a", "message": "zmem(DECISION): keep"}, {"id": "b", "message": "plain"}]}
+    )
+    assert [item["id"] for item in response["inspections"]] == ["a", "b"]
+    assert [item["annotation_count"] for item in response["inspections"]] == [1, 0]
+
+    for invalid in (
+        {"items": []},
+        {"items": [{"id": "", "message": "plain"}]},
+        {"items": [{"id": "a", "message": "plain", "extra": True}]},
+        {"items": [{"id": "a", "message": 1}]},
+    ):
+        with pytest.raises((TypeError, ValueError)):
+            inspect_batch_request(invalid)
 
 
 def test_native_attention_metadata_and_result_truncation_compose() -> None:

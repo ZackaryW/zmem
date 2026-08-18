@@ -20,8 +20,8 @@ from typing import Any
 
 from zmem.utils.protocol import PROTOCOL_VERSION
 
-MANIFEST_VERSION = 1
-SCHEMA_VERSION = 2
+MANIFEST_VERSION = 2
+SCHEMA_VERSION = 3
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
@@ -132,7 +132,6 @@ def sha256_file(path: Path) -> str:
 @dataclass(frozen=True)
 class RuntimeManifest:
     manifest_version: int
-    release_version: str
     binary_version: str
     host_version: str
     protocol_version: int
@@ -147,7 +146,12 @@ class RuntimeManifest:
     def from_mapping(cls, value: object) -> RuntimeManifest:
         if not isinstance(value, Mapping):
             raise TypeError("runtime manifest must be an object")
+        manifest_version = value.get("manifest_version")
+        if type(manifest_version) is not int or manifest_version not in {1, MANIFEST_VERSION}:
+            raise ValueError("unsupported runtime manifest version")
         expected = set(cls.__dataclass_fields__)
+        if manifest_version == 1:
+            expected.add("release_version")
         actual = set(value)
         missing = expected - actual
         unknown = actual - expected
@@ -160,7 +164,6 @@ class RuntimeManifest:
             if type(value[name]) is not int:
                 raise ValueError(f"{name} must be an integer")
         strings = (
-            "release_version",
             "binary_version",
             "host_version",
             "sha256",
@@ -172,8 +175,10 @@ class RuntimeManifest:
         for name in strings:
             if not isinstance(value[name], str) or not value[name]:
                 raise ValueError(f"{name} must be a non-empty string")
-        if value["manifest_version"] != MANIFEST_VERSION:
-            raise ValueError("unsupported runtime manifest version")
+        if manifest_version == 1:
+            release_version = value["release_version"]
+            if not isinstance(release_version, str) or not release_version:
+                raise ValueError("release_version must be a non-empty string")
         if not SHA256_PATTERN.fullmatch(value["sha256"]):
             raise ValueError("sha256 must contain 64 lowercase hexadecimal characters")
         binary = Path(value["binary"])
@@ -184,7 +189,9 @@ class RuntimeManifest:
             datetime.fromisoformat(value["installed_at"])
         except ValueError as exc:
             raise ValueError("installed_at must be an ISO-8601 timestamp") from exc
-        return cls(**{**value, "binary": binary, "host": host})  # type: ignore[arg-type]
+        normalized = {key: item for key, item in value.items() if key != "release_version"}
+        normalized["manifest_version"] = MANIFEST_VERSION
+        return cls(**{**normalized, "binary": binary, "host": host})  # type: ignore[arg-type]
 
     @classmethod
     def read(cls, path: Path) -> RuntimeManifest:
@@ -196,6 +203,7 @@ class RuntimeManifest:
 
     def to_mapping(self) -> dict[str, Any]:
         value = asdict(self)
+        value["manifest_version"] = MANIFEST_VERSION
         value["binary"] = str(self.binary)
         value["host"] = str(self.host)
         return value
@@ -275,7 +283,6 @@ def stage_runtime(
         assemble_host(staged_paths.host_dir, package_root)
         manifest = RuntimeManifest(
             manifest_version=MANIFEST_VERSION,
-            release_version=identity.release_version,
             binary_version=identity.binary_version,
             host_version=identity.release_version,
             protocol_version=identity.protocol_version,

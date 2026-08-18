@@ -36,6 +36,18 @@ Explicit `--binary`, `ZMEM_SVC_SOURCE`, packaged binaries, and PATH remain highe
 
 The runtime manifest keeps the Python package version as `host_version` and the service-reported version as `binary_version`; compatibility continues to require exact protocol and schema equality. The generic `release_version` field is removed in a manifest-version-2 format to avoid a misleading shared version. Status exposes both component versions. Existing manifest version 1 remains readable for stop, replacement, and upgrade, and the next successful installation writes version 2.
 
+## Utility Plan (Disposable)
+
+Remove this section after the utilities below have independent fail-first proof and GREEN verification.
+
+- `inspect_batch_request(payload: Mapping[str, object]) -> dict[str, object]` validates the complete strict item list before parsing and returns same-order identified counts and diagnostics.
+- `stable_release_version(tag: object) -> tuple[int, int, int] | None` accepts only exact stable `vMAJOR.MINOR.PATCH` tags and supplies numeric ordering without a packaging dependency.
+- `iter_release_inventory(opener, url: str) -> Iterator[Mapping[str, object]]` follows typed pagination and rejects a malformed inventory envelope or transport failure.
+- `select_compatible_release(releases, *, target: str, protocol: int, schema: int, opener) -> SelectedRelease` sorts stable candidates, reads strict manifests, skips incompatible/inapplicable releases, and returns the greatest valid candidate or one no-compatible-release error.
+- `acquire_release_binary(staging_root: Path, *, expected_protocol: int, expected_schema: int, ...) -> Iterator[AcquiredBinary]` delegates selection, retains bounded manifest/artifact reads, and returns the selected version with its verified temporary path.
+- `RuntimeManifest.from_mapping(value: object) -> RuntimeManifest` reads manifest versions 1 and 2 into independent component fields; `RuntimeManifest.to_mapping()` writes only version 2 without a shared release version.
+- `_binary_identity(binary: Path, paths: RuntimePaths) -> ServiceIdentity` and `stage_runtime(...)` carry package host version and selected binary version independently while preserving exact protocol/schema checks.
+
 ## Risks / Trade-offs
 
 - [Unauthenticated GitHub API limits can block discovery] → Minimize requests by evaluating newest candidates first, surface transport/rate-limit details, and preserve explicit/local binary escape hatches.

@@ -227,7 +227,7 @@ class StagedRuntime:
 
 @dataclass(frozen=True)
 class ServiceIdentity:
-    release_version: str
+    host_version: str
     binary_version: str
     protocol_version: int
     schema_version: int
@@ -284,7 +284,7 @@ def stage_runtime(
         manifest = RuntimeManifest(
             manifest_version=MANIFEST_VERSION,
             binary_version=identity.binary_version,
-            host_version=identity.release_version,
+            host_version=identity.host_version,
             protocol_version=identity.protocol_version,
             schema_version=identity.schema_version,
             sha256=sha256_file(staged_paths.binary),

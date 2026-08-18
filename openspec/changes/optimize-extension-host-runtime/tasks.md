@@ -23,5 +23,5 @@
 
 ## 5. Documentation and release coordination
 
-- [ ] 5.1 Update install, upgrade, compatibility, and runtime metadata documentation without asserting prose through tests
-- [ ] 5.2 Coordinate protocol/schema identities and publish the compatible native service before the Python package release
+- [x] 5.1 Update install, upgrade, compatibility, and runtime metadata documentation without asserting prose through tests
+- [x] 5.2 Coordinate protocol/schema identities and document native-first publication ordering before the Python package release

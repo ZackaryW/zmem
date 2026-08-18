@@ -4,7 +4,7 @@
 
 ## Install
 
-Python 3.14 or newer is required.
+Python 3.12 or newer is required.
 
 ```console
 uv sync --locked
@@ -18,7 +18,7 @@ uvx zmem service install
 uvx zmem service status
 ```
 
-`uvx` obtains the Python package from the configured Python index. `zmem service install` then resolves the exact same-version `ZackaryW/zmem-cache` GitHub Release, selects the current operating-system and architecture target, verifies its advertised size and SHA-256 digest, and validates the native release, protocol, and schema identity. The installer copies that service and a persistent Python extension host into stable paths below `~/.zmem/runtime`, starts the copied service, and registers it for current-user startup. The active paths never contain a version:
+`uvx` obtains the Python package from the configured Python index. When no local binary source is available, `zmem service install` enumerates stable `ZackaryW/zmem-cache` GitHub Releases and chooses the greatest semantic version with an exact protocol/schema match and an artifact for the current platform. It skips drafts, prereleases, malformed tags, incompatible releases, and releases without that platform, then verifies the selected artifact's advertised size, SHA-256 digest, and native identity. The native and Python release numbers may differ. The installer copies that service and a persistent Python extension host into stable paths below `~/.zmem/runtime`, starts the copied service, and registers it for current-user startup. The active paths never contain a version:
 
 ```text
 ~/.zmem/runtime/
@@ -27,7 +27,7 @@ uvx zmem service status
 └── runtime.json
 ```
 
-`runtime.json` records release, binary, host, protocol, schema, checksum, installation, and active-path identity. Upgrades use `.staging` and retain `.previous` until the replacement passes its health check.
+Manifest version 2 of `runtime.json` records independent `binary_version` and `host_version` values plus protocol, schema, checksum, installation, and active-path identity; it has no shared `release_version`. Version-1 manifests remain readable for replacement and upgrade. Upgrades use `.staging` and retain `.previous` until the replacement passes its health check.
 
 Source development can select the companion Rust build explicitly:
 
@@ -35,7 +35,7 @@ Source development can select the companion Rust build explicitly:
 uv run zmem service install --binary ../zmem-cache/target/release/zmem-svc --no-register
 ```
 
-Binary discovery checks `--binary`, `ZMEM_SVC_SOURCE`, packaged native data, then `PATH` before consulting the remote release. Invalid explicit and environment paths fail without falling through. Offline installations can use any of those local sources. `ZMEM_SVC_RELEASE_ROOT` can select an explicit release mirror for integration or development; the default is `https://github.com/ZackaryW/zmem-cache/releases/download`. `ZMEM_SVC` remains a direct development override for ordinary memory commands.
+Binary discovery checks `--binary`, `ZMEM_SVC_SOURCE`, packaged native data, then `PATH` before consulting the remote inventory. Invalid explicit and environment paths fail without falling through, and local sources never contact the inventory. Offline installations can use any local source. `ZMEM_SVC_RELEASE_INVENTORY` and `ZMEM_SVC_RELEASE_ROOT` can select explicit inventory and asset mirrors for integration or development; their defaults are the GitHub Releases API and `https://github.com/ZackaryW/zmem-cache/releases/download`. Publish the compatible native release before the Python release that selects it. `ZMEM_SVC` remains a direct development override for ordinary memory commands.
 
 A persistent tool installation uses the same explicit service boundary:
 

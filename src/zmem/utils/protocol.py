@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 
 
 class ProtocolError(ValueError):

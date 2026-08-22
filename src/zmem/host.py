@@ -9,7 +9,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from zmem.builtin import CancelExpander, DecayExpander, DecisionExpander, LessonLearntExpander
+from zmem.builtin import CancelExpander, DecayExpander, DecisionExpander, LessonLearntExpander, MetaExpander
 from zmem.ext.expander import ExpanderRegistry, ExpansionContext, RegistryError
 from zmem.ext.hooks import HookRegistry
 from zmem.utils.annotations import parse_annotations, parse_scope
@@ -37,7 +37,7 @@ def expand_request(payload: dict) -> dict:
     custom_root = payload.get("custom_extension_root") or os.getenv("ZMEM_CUSTOM_EXT_ROOT", ".zmem")
     manifest = discover(global_root, repo, custom_root, bool(payload.get("trusted_extensions")))
     expanders = ExpanderRegistry()
-    for built_in in (DecisionExpander(), LessonLearntExpander(), DecayExpander(), CancelExpander()):
+    for built_in in (DecisionExpander(), LessonLearntExpander(), DecayExpander(), CancelExpander(), MetaExpander()):
         expanders.extend(built_in.extension_id, built_in)
     hooks = HookRegistry()
     diagnostics = list(manifest.diagnostics)

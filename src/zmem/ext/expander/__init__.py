@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import Any, Protocol
 
 from zmem.utils.annotations import Annotation, TargetRef
+from zmem.utils.metadata import MetadataPatch
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,14 @@ class ExpansionContext:
 
     def cancel(self, target: TargetRef) -> None:
         self._record("cancel", target_sha=target.sha_prefix, target_index=target.index)
+
+    def metadata_patch(self, patch: MetadataPatch) -> None:
+        self._record(
+            "metadata_patch",
+            from_sha=patch.from_sha,
+            to_sha=patch.to_sha,
+            operations=tuple(operation.to_mapping() for operation in patch.operations),
+        )
 
     def diagnose(self, message: str) -> None:
         self._record("diagnose", message=message)

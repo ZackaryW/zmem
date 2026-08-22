@@ -1,8 +1,8 @@
 ## 1. Protocol and Metadata Utilities
 
-- [ ] 1.1 Add fail-first unit matrices for META parsing, typed operations, declared-key validation, area normalization, hierarchical overlap, null/global behavior, and ancestry-conflict interpretation.
-- [ ] 1.2 Implement the minimum Python metadata value types, META parser model, area matcher, and protocol/schema constant bump needed to satisfy the focused tests.
-- [ ] 1.3 Extend extension-context journaling with the typed metadata-patch action while preserving META as a node-consuming non-entry effect and canonical-field ownership.
+- [x] 1.1 Add fail-first unit matrices for META parsing, typed operations, declared-key validation, area normalization, hierarchical overlap, null/global behavior, and ancestry-conflict interpretation.
+- [x] 1.2 Implement the minimum Python metadata value types, META parser model, area matcher, and protocol/schema constant bump needed to satisfy the focused tests.
+- [x] 1.3 Extend extension-context journaling with the typed metadata-patch action while preserving META as a node-consuming non-entry effect and canonical-field ownership.
 
 ## 2. Reference-Aware Native Client
 

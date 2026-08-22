@@ -64,18 +64,6 @@ The Python protocol/schema constants advance with the native service. Install an
 
 Rollback uses the retained previous runtime only before the new database schema is used. Database downgrade is not promised; recovery remains reconstruction from Git through the supported service version.
 
-## Utility Plan (Disposable)
-
-Remove this section after these seams have fail-first unit proof and independent GREEN verification.
-
-- `parse_meta(annotation: Annotation) -> MetadataPatch | Diagnostic` validates endpoints and ordered `set`, `add`, and `null` operations for only `affected_areas`, `owner`, and `tags` without producing an entry.
-- `normalize_area(value: str) -> Area` accepts repository-relative hierarchical areas and the exact `<root>` sentinel while rejecting absolute, empty, parent-traversing, or non-normalized values.
-- `areas_overlap(stored: tuple[Area, ...] | None, requested: Collection[Area]) -> bool` implements null/global matching, exact `<root>` isolation, OR within requested areas, and bidirectional ancestor overlap.
-- `MetadataPatchAction.to_mapping() -> dict[str, object]` and `MetadataPatchAction.from_mapping(value: object) -> MetadataPatchAction` preserve ordered typed operations across the extension-host journal boundary.
-- `observe_ref(repository: Path, selector: str | None) -> ObservedRef` resolves the requested commit-ish or worktree HEAD without checkout and retains both the selector and observed OID.
-- `TrailSummary.from_mapping(value: object) -> TrailSummary` strictly decodes requested selector, resolved OID, trail identity, attention, extension, protocol, and schema identities without JSON type coercion.
-- `NativeQueryRequest.with_ref(observed: ObservedRef) -> NativeQueryRequest` sends selector and observed OID together; structured stale-ref, incomplete-range, and metadata-conflict responses remain typed diagnostics.
-
 ## Open Questions
 
 None.

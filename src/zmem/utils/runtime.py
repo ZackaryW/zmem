@@ -21,7 +21,7 @@ from typing import Any
 from zmem.utils.protocol import PROTOCOL_VERSION
 
 MANIFEST_VERSION = 2
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 

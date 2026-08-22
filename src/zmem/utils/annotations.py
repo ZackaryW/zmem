@@ -7,11 +7,14 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
+from zmem.utils.metadata import MetadataPatch, parse_metadata_patch
+
 _ENTRY = re.compile(r"^(?:[-*]\s+)?zmem\((?P<type>[A-Z][A-Z0-9_]*)\):\s*(?P<content>.+)$")
 _DECAY = re.compile(
     r"^(?:[-*]\s+)?zmem\(DECAY\)\[\s*(?P<sha>[0-9a-fA-F]+)\s*,\s*(?P<index>\d+)\s*,\s*(?P<factor>[^]]+)\s*]$"
 )
 _CANCEL = re.compile(r"^(?:[-*]\s+)?zmem\(CANCEL\)\[\s*(?P<sha>[0-9a-fA-F]+)\s*,\s*(?P<index>\d+)\s*]$")
+_META = re.compile(r"^(?:[-*]\s+)?zmem\(META\)\[(?P<body>.*)]$")
 _CONVENTIONAL = re.compile(r"^[a-z]+(?:\((?P<scope>[^)]*)\))?!?:")
 
 
@@ -19,6 +22,7 @@ class AnnotationKind(StrEnum):
     ENTRY = "entry"
     DECAY = "decay"
     CANCEL = "cancel"
+    META = "meta"
 
 
 @dataclass(frozen=True)
@@ -35,6 +39,7 @@ class Annotation:
     content: str | None = None
     target: TargetRef | None = None
     factor: float | None = None
+    patch: MetadataPatch | None = None
 
 
 @dataclass(frozen=True)
@@ -83,9 +88,17 @@ def parse_annotations(message: str) -> ParseResult:
                 )
             )
             continue
+        if match := _META.match(line):
+            try:
+                patch = parse_metadata_patch(match.group("body").split(","))
+            except ValueError:
+                diagnostics.append(f"invalid META annotation at index {ordinal}")
+                continue
+            annotations.append(Annotation(AnnotationKind.META, ordinal, "META", patch=patch))
+            continue
         if match := _ENTRY.match(line):
             annotation_type = match.group("type")
-            if annotation_type in {"DECAY", "CANCEL"}:
+            if annotation_type in {"DECAY", "CANCEL", "META"}:
                 diagnostics.append(f"invalid {annotation_type} annotation at index {ordinal}")
                 continue
             annotations.append(

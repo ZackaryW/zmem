@@ -1,4 +1,10 @@
-## ADDED Requirements
+# memory-metadata Specification
+
+## Purpose
+
+Defines typed, trail-layered memory metadata and conservative monorepo affected-area behavior.
+
+## Requirements
 
 ### Requirement: Entries expose typed commit metadata
 Every queryable entry SHALL expose `affected_areas` as either null or an ordered unique array of normalized repository-relative areas, `owner` as either null or a string, and `tags` as an ordered unique string array. Null `affected_areas` SHALL mean global applicability and SHALL match every affected-area filter.

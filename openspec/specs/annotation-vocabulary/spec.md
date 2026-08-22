@@ -35,9 +35,20 @@ The system SHALL interpret `zmem(CANCEL)[<sha>, <index>]` as an effect that sets
 - **WHEN** CANCEL targets an entry whose type is not `DECISION`
 - **THEN** no entry changes and a diagnostic is produced
 
+### Requirement: META syntax produces typed metadata effects
+The parser SHALL recognize `zmem(META)[<from>, <to>, <operation>, ...]` with one-based annotation ordering, preserve typed set, add, and null operations for the host, and reject malformed endpoints, keys, operators, or values diagnostically. META SHALL consume annotation attention but SHALL NOT create a queryable entry.
+
+#### Scenario: BDD target — Parse a metadata patch
+- **WHEN** executable behavior is covered by `features/annotation-vocabulary/annotation-vocabulary.feature::Parse a metadata patch`
+- **THEN** that exact feature scenario is the executable authority and this specification does not repeat its steps
+
 ### Requirement: Effects are not entries
-DECAY and CANCEL SHALL affect materialized state without themselves appearing as stored or queryable entries.
+DECAY, CANCEL, and META SHALL affect materialized trail state without themselves appearing as stored or queryable entries.
 
 #### Scenario: Query a commit containing an effect
 - **WHEN** a commit contains one DECAY annotation and no entry-producing annotation
 - **THEN** the effect is applied but the commit contributes zero queryable entries
+
+#### Scenario: BDD target — Query a commit containing effects
+- **WHEN** executable behavior is covered by `features/annotation-vocabulary/annotation-vocabulary.feature::Query a commit containing effects`
+- **THEN** that exact feature scenario is the executable authority and this specification does not repeat its steps

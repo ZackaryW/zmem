@@ -1,4 +1,10 @@
-## ADDED Requirements
+# memory-trails Specification
+
+## Purpose
+
+Defines live Git selection and typed immutable-trail provenance for snapshot queries.
+
+## Requirements
 
 ### Requirement: Queries select immutable trails through live Git refs
 Snapshot queries SHALL accept an optional Git commit-ish, resolve it against the current repository at request time, and identify the selected cache trail by repository, resolved HEAD, attention policy, extension identity, and protocol/schema identity. Omitting the selector SHALL use the worktree's observed HEAD.

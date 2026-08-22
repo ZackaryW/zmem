@@ -27,3 +27,13 @@ Feature: Scored zmem annotation vocabulary
     When a later reachable commit tries to cancel it
     Then the lesson remains valid
     And an effect diagnostic is returned
+
+  Scenario: Parse a metadata patch
+    Given a commit containing a META owner replacement and tag addition
+    When its annotations are expanded
+    Then one ordered metadata-patch effect is emitted and no META entry is materialized
+
+  Scenario: Query a commit containing effects
+    Given a commit containing one valid metadata effect and no entry annotation
+    When the commit is queried after expansion
+    Then its complete target is updated and the effect commit contributes no queryable entry

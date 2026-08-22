@@ -21,10 +21,35 @@ Feature: Service-backed zmem commands
     When I search for "cache"
     Then only the valid entry is returned
 
-  Scenario: Links succeeds without relationships
+  Scenario: No relationship-producing expander
     Given an index with no relationship-producing expander
     When I run zmem links
     Then an empty successful links envelope is returned
+
+  Scenario: First query in an unregistered repository
+    Given an unregistered Git repository with memory on a non-checked-out ref
+    When I recall from that ref
+    Then the repository is registered and the result identifies its compatible trail
+
+  Scenario: Empty successful query
+    Given an indexed trail with no matching entries
+    When I recall its missing event type
+    Then the complete empty envelope identifies the selected trail
+
+  Scenario: Attention truncation precedes result limiting
+    Given a trail whose attention and matching results both exceed their limits
+    When I search with bounded attention and a result limit
+    Then the envelope distinguishes attention usage from result count and reports truncation
+
+  Scenario: Recall one monorepo area from another branch
+    Given a branch with global and bounded memories across monorepo areas
+    When I recall that branch for area b/sub
+    Then only global or hierarchically overlapping valid entries are returned
+
+  Scenario: Search combines text and affected area
+    Given a selected trail with matching text across several affected areas
+    When I search that ref with text and multiple affected areas
+    Then only text matches in at least one requested area preserve the other filters
 
   Scenario: Links returns and filters expander relationships
     Given an indexed custom relationship from "m1" to "m2" with score 0.9

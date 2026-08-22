@@ -12,6 +12,7 @@ def envelope(
     rows: list[dict[str, Any]],
     truncated: bool = False,
     attention: dict[str, object] | None = None,
+    trail: dict[str, object] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "command": command,
@@ -21,6 +22,8 @@ def envelope(
     }
     if attention is not None:
         payload["attention"] = attention
+    if trail is not None:
+        payload["trail"] = trail
     return payload
 
 
@@ -48,6 +51,15 @@ def render_human(payload: dict[str, Any]) -> str:
                 f"{key}={value}"
                 for key, value in attention.items()
                 if key in {"commit_limit", "node_limit", "selected_commits", "selected_nodes", "truncated"}
+            )
+        )
+    if trail := payload.get("trail"):
+        lines.append(
+            "  trail="
+            + ", ".join(
+                f"{key}={value}"
+                for key, value in trail.items()
+                if key in {"requested_selector", "resolved_oid", "trail_id"}
             )
         )
     for row in payload["results"]:

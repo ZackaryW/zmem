@@ -10,10 +10,13 @@ from pathlib import Path
 from zmem.utils.attention import AttentionPolicy
 from zmem.utils.protocol import PROTOCOL_VERSION
 from zmem.utils.runtime import RuntimeManifest, resolve_runtime_paths
+from zmem.utils.trails import ObservedRef, TrailSummary
 
 
 class ServiceError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, category: str = "service") -> None:
+        super().__init__(message)
+        self.category = category
 
 
 def _service_binary() -> str:
@@ -43,21 +46,33 @@ def query(
     *,
     include_invalid: bool = True,
     attention: AttentionPolicy | None = None,
+    observed: ObservedRef | None = None,
 ) -> dict:
     executable = _service_binary()
     command = [executable, "query", str(repo)]
     if include_invalid:
         command.append("--include-invalid")
+    if observed is not None:
+        if observed.selector is not None:
+            command.extend(("--ref", observed.selector))
+        command.extend(("--observed-oid", observed.oid))
     _append_attention(command, attention)
     try:
         completed = subprocess.run(command, capture_output=True, text=True, check=False)
     except OSError as exc:
         raise ServiceError(f"service unavailable: {exc}") from exc
     if completed.returncode:
-        raise ServiceError(completed.stderr.strip() or "service request failed")
+        detail = completed.stderr.strip() or "service request failed"
+        category = "stale_ref" if "stale ref:" in detail else "service"
+        raise ServiceError(detail, category=category)
     try:
-        return json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
+        payload = json.loads(completed.stdout)
+        if not isinstance(payload, dict) or not isinstance(payload.get("summary"), dict):
+            raise TypeError("service query response must contain a summary object")
+        trail = TrailSummary.from_mapping(payload["summary"].get("trail", {}))
+        payload["summary"]["trail"] = trail.to_mapping()
+        return payload
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
         raise ServiceError("service returned invalid JSON") from exc
 
 

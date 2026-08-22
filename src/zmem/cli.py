@@ -19,7 +19,9 @@ from zmem.service import ServiceManagementError
 from zmem.service import dispatch as service_dispatch
 from zmem.utils.attention import attention_metadata, combine_truncation, resolve_attention
 from zmem.utils.commit_messages import validate_policy
+from zmem.utils.metadata import areas_overlap
 from zmem.utils.output import envelope, render_human
+from zmem.utils.trails import observe_ref
 
 
 def _repo_root(path: Path) -> Path:
@@ -58,9 +60,12 @@ def _parser() -> argparse.ArgumentParser:
     recall.add_argument("--since")
     recall.add_argument("--limit", type=int)
     recall.add_argument("--events", action="store_true")
+    recall.add_argument("--area", action="append")
+    recall.add_argument("--ref", dest="trail_ref")
     show = sub.add_parser("show")
     show.add_argument("sha")
     show.add_argument("--diff-content", action="store_true")
+    show.add_argument("--ref", dest="trail_ref")
     search = sub.add_parser("search")
     search.add_argument("query", nargs="?")
     search.add_argument("--in", dest="domain", default="all")
@@ -68,10 +73,13 @@ def _parser() -> argparse.ArgumentParser:
     search.add_argument("--regex", action="store_true")
     search.add_argument("--include-invalid", action="store_true")
     search.add_argument("--limit", type=int)
+    search.add_argument("--area", action="append")
+    search.add_argument("--ref", dest="trail_ref")
     links = sub.add_parser("links")
     links.add_argument("--from", dest="source")
     links.add_argument("--to", dest="target")
     links.add_argument("--min-score", type=float)
+    links.add_argument("--ref", dest="trail_ref")
     check = sub.add_parser("check")
     check.add_argument("reference", nargs="?")
     inputs = check.add_mutually_exclusive_group()
@@ -192,27 +200,43 @@ def run(argv: list[str] | None = None) -> int:
             }
             _emit(payload, args.human)
             return 0 if ok else 5
-        snapshot = service_query(repo, include_invalid=True, attention=attention_policy)
+        observed = observe_ref(repo, args.trail_ref)
+        snapshot = service_query(
+            repo,
+            include_invalid=True,
+            attention=attention_policy,
+            observed=observed,
+        )
         attention = attention_metadata(snapshot["summary"])
+        trail = snapshot["summary"]["trail"]
         rows = snapshot["entries"]
         if args.command == "recall":
             if args.events:
                 counts = Counter(row["type"] for row in rows if row["valid"])
                 result = [{"event": event, "count": count} for event, count in counts.most_common()]
-                _emit(envelope("recall", result, attention=attention), args.human)
+                _emit(envelope("recall", result, attention=attention, trail=trail), args.human)
                 return 0
             rows = [row for row in rows if row["valid"]]
             if args.event:
                 rows = [row for row in rows if row["type"] in set(args.event)]
             if args.scope is not None:
                 rows = [row for row in rows if row.get("scope") == args.scope]
+            if args.area:
+                rows = [
+                    row
+                    for row in rows
+                    if areas_overlap(
+                        None if row.get("affected_areas") is None else tuple(row["affected_areas"]),
+                        args.area,
+                    )
+                ]
             if args.since:
                 boundary = _resolve(repo, args.since)
                 if boundary:
                     revision_command = ["git", "-C", str(repo), "rev-list"]
                     if attention_policy.commit_limit != -1:
                         revision_command.append(f"--max-count={attention_policy.commit_limit}")
-                    revision_command.append(f"{boundary}..HEAD")
+                    revision_command.append(f"{boundary}..{trail['resolved_oid']}")
                     walked = subprocess.run(
                         revision_command,
                         capture_output=True,
@@ -235,12 +259,21 @@ def run(argv: list[str] | None = None) -> int:
             truncated = args.limit is not None and len(rows) > args.limit
             if args.limit is not None:
                 rows = rows[: args.limit]
-            _emit(envelope("recall", rows, truncated, attention), args.human)
+            _emit(envelope("recall", rows, truncated, attention, trail), args.human)
         elif args.command == "search":
             if not args.include_invalid:
                 rows = [row for row in rows if row["valid"]]
             if args.event:
                 rows = [row for row in rows if row["type"] in set(args.event)]
+            if args.area:
+                rows = [
+                    row
+                    for row in rows
+                    if areas_overlap(
+                        None if row.get("affected_areas") is None else tuple(row["affected_areas"]),
+                        args.area,
+                    )
+                ]
             if args.query:
                 if args.regex:
                     pattern = re.compile(args.query, re.IGNORECASE)
@@ -251,7 +284,7 @@ def run(argv: list[str] | None = None) -> int:
             truncated = args.limit is not None and len(rows) > args.limit
             if args.limit is not None:
                 rows = rows[: args.limit]
-            _emit(envelope("search", rows, truncated, attention), args.human)
+            _emit(envelope("search", rows, truncated, attention, trail), args.human)
         elif args.command == "show":
             sha = _resolve(repo, args.sha)
             if sha is None:
@@ -281,7 +314,7 @@ def run(argv: list[str] | None = None) -> int:
                 result["diff"] = subprocess.run(
                     ["git", "-C", str(repo), "show", "--format=", sha], capture_output=True, text=True, check=True
                 ).stdout
-            _emit(envelope("show", [result], attention=attention), args.human)
+            _emit(envelope("show", [result], attention=attention, trail=trail), args.human)
         else:
             relationships = snapshot.get("relationships", [])
             if args.source is not None:
@@ -290,16 +323,19 @@ def run(argv: list[str] | None = None) -> int:
                 relationships = [row for row in relationships if row["to"] == args.target]
             if args.min_score is not None:
                 relationships = [row for row in relationships if row["score"] >= args.min_score]
-            _emit(envelope("links", relationships, attention=attention), args.human)
+            _emit(envelope("links", relationships, attention=attention, trail=trail), args.human)
         return 0
     except ValueError as exc:
-        print(json.dumps({"command": args.command, "error": str(exc)}))
+        print(json.dumps({"command": args.command, "category": "request", "error": str(exc)}))
         return 2
     except LookupError as exc:
-        print(json.dumps({"command": args.command, "error": str(exc)}))
+        print(json.dumps({"command": args.command, "category": "target", "error": str(exc)}))
         return 3
-    except (ServiceError, ServiceManagementError, OSError, subprocess.SubprocessError) as exc:
-        print(json.dumps({"command": args.command, "error": str(exc)}))
+    except ServiceError as exc:
+        print(json.dumps({"command": args.command, "category": exc.category, "error": str(exc)}))
+        return 4
+    except (ServiceManagementError, OSError, subprocess.SubprocessError) as exc:
+        print(json.dumps({"command": args.command, "category": "service", "error": str(exc)}))
         return 4
 
 

@@ -14,7 +14,7 @@ from pathlib import Path
 from behave import given, then, when
 
 from features.support.lifecycle import commit, init_repo, run_zmem, run_zmem_service
-from zmem.builtin import CancelExpander, DecayExpander, DecisionExpander, LessonLearntExpander
+from zmem.builtin import CancelExpander, DecayExpander, DecisionExpander, LessonLearntExpander, MetaExpander
 from zmem.ext.expander import ExpansionContext, RegistryError
 from zmem.ext.hooks import HookRegistry
 from zmem.host import expand_request
@@ -244,6 +244,7 @@ def _actions(message: str):
         "LESSON_LEARNT": LessonLearntExpander(),
         "DECAY": DecayExpander(),
         "CANCEL": CancelExpander(),
+        "META": MetaExpander(),
     }
     actions = []
     for annotation in parsed.annotations:
@@ -1203,3 +1204,558 @@ def then_attention_threshold_diagnostic(context):
 @then("it does not claim the decision is absent from complete history")
 def then_no_false_complete_history_claim(context):
     assert all("absent from complete history" not in item for item in context.check_payload["diagnostics"])
+
+
+def _git(context, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", context.repo, *args],
+        env=context.env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, (completed.stdout, completed.stderr)
+    return completed.stdout.strip()
+
+
+def _commit_files(context, subject: str, body: str, files: dict[str, str]) -> str:
+    for relative, content in files.items():
+        path = context.repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    _git(context, "add", "-A")
+    args = ["commit", "-q", "-m", subject]
+    if body:
+        args.extend(("-m", body))
+    _git(context, *args)
+    return _git(context, "rev-parse", "HEAD")
+
+
+@given("a repository with an unoccupied branch containing memory")
+def given_unoccupied_memory_branch(context):
+    init_repo(context)
+    context.base_oid = commit(context, "chore: base")
+    _git(context, "switch", "-c", "memory-branch")
+    context.memory_branch_oid = commit(
+        context,
+        "feat: branch memory",
+        "zmem(DECISION): unoccupied branch memory",
+        "branch",
+    )
+    _git(context, "switch", "-")
+    context.worktree_before = _git(context, "status", "--porcelain=v1", "--branch")
+
+
+@when("I query that branch without checking it out")
+def when_query_unoccupied_memory_branch(context):
+    run_zmem(context, "recall", "--ref", "memory-branch")
+    context.payload = _json_result(context)
+
+
+@then("the result uses an immutable trail through the branch head without changing the worktree")
+def then_unoccupied_branch_trail(context):
+    assert context.completed.returncode == 0
+    assert context.payload["trail"]["resolved_oid"] == context.memory_branch_oid
+    assert context.payload["results"][0]["content"] == "unoccupied branch memory"
+    assert _git(context, "status", "--porcelain=v1", "--branch") == context.worktree_before
+
+
+@given("a client-observed branch head that moves before native resolution")
+def given_client_ref_race(context):
+    init_repo(context)
+    context.race_oid = commit(context, "feat: observed", "zmem(DECISION): observed")
+    context.race_branch = _git(context, "branch", "--show-current")
+    real_service = context.env["ZMEM_SVC"]
+    wrapper = context.temp_root / "move-ref-before-service.py"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, subprocess, sys\n"
+        "real=os.environ['REAL_ZMEM_SVC']\n"
+        "if len(sys.argv)>1 and sys.argv[1]=='query':\n"
+        " repo=os.environ['RACE_REPO']\n"
+        " path=os.path.join(repo,'race.txt')\n"
+        " open(path,'w').write('moved\\n')\n"
+        " subprocess.run(['git','-C',repo,'add','race.txt'],check=True)\n"
+        " subprocess.run(['git','-C',repo,'commit','-q','-m','feat: move during query'],check=True)\n"
+        "os.execv(real,[real,*sys.argv[1:]])\n"
+    )
+    wrapper.chmod(0o755)
+    context.env["REAL_ZMEM_SVC"] = real_service
+    context.env["RACE_REPO"] = str(context.repo)
+    context.env["ZMEM_SVC"] = str(wrapper)
+
+
+@when("I query the branch with the observed commit identity")
+def when_query_racing_branch(context):
+    run_zmem(context, "recall", "--ref", context.race_branch)
+    context.payload = _json_result(context)
+
+
+@then("the query fails with a structured stale-ref error and publishes no trail")
+def then_structured_stale_ref(context):
+    assert context.completed.returncode == 4
+    assert context.payload["category"] == "stale_ref"
+    assert "stale ref" in context.payload["error"]
+    database_path = context.home / "db" / "entries.db"
+    if database_path.exists():
+        import sqlite3
+
+        with sqlite3.connect(database_path) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM trails").fetchone()[0] == 0
+
+
+@given("two Git selectors resolving to one commit under identical identities")
+def given_two_selectors_one_commit(context):
+    init_repo(context)
+    context.shared_selector_oid = commit(context, "feat: shared", "zmem(DECISION): shared selector")
+    _git(context, "branch", "selector-a", context.shared_selector_oid)
+    _git(context, "branch", "selector-b", context.shared_selector_oid)
+
+
+@when("I query memory through both selectors")
+def when_query_two_selectors(context):
+    context.selector_payloads = []
+    for selector in ("selector-a", "selector-b"):
+        run_zmem(context, "recall", "--ref", selector)
+        assert context.completed.returncode == 0, (context.completed.stdout, context.completed.stderr)
+        context.selector_payloads.append(_json_result(context))
+
+
+@then("both envelopes identify the same immutable trail and their requested selectors")
+def then_two_selector_envelopes(context):
+    trails = [payload["trail"] for payload in context.selector_payloads]
+    assert trails[0]["trail_id"] == trails[1]["trail_id"]
+    assert [trail["requested_selector"] for trail in trails] == ["selector-a", "selector-b"]
+
+
+@given("an unregistered Git repository with memory on a non-checked-out ref")
+def given_unregistered_nonchecked_ref(context):
+    given_unoccupied_memory_branch(context)
+
+
+@when("I recall from that ref")
+def when_recall_unregistered_ref(context):
+    run_zmem(context, "recall", "--ref", "memory-branch")
+    context.payload = _json_result(context)
+
+
+@then("the repository is registered and the result identifies its compatible trail")
+def then_registered_ref_trail(context):
+    assert context.completed.returncode == 0
+    assert context.payload["trail"]["resolved_oid"] == context.memory_branch_oid
+    import sqlite3
+
+    with sqlite3.connect(context.home / "db" / "entries.db") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM repositories").fetchone()[0] == 1
+
+
+@given("an indexed trail with no matching entries")
+def given_empty_match_trail(context):
+    init_repo(context)
+    context.empty_head = commit(context, "feat: one", "zmem(DECISION): present")
+
+
+@when("I recall its missing event type")
+def when_recall_missing_type(context):
+    run_zmem(context, "recall", "--event", "MISSING")
+    context.payload = _json_result(context)
+
+
+@then("the complete empty envelope identifies the selected trail")
+def then_empty_envelope_has_trail(context):
+    assert context.completed.returncode == 0
+    assert context.payload["count"] == 0 and context.payload["results"] == []
+    assert context.payload["trail"]["resolved_oid"] == context.empty_head
+
+
+@given("a trail whose attention and matching results both exceed their limits")
+def given_attention_and_result_limits(context):
+    init_repo(context)
+    context.limited_head = commit(
+        context,
+        "feat: many",
+        "\n".join(f"zmem(DECISION): bounded {index}" for index in range(4)),
+    )
+
+
+@when("I search with bounded attention and a result limit")
+def when_search_bounded_and_limited(context):
+    run_zmem(context, "--node-limit", "3", "search", "bounded", "--limit", "1")
+    context.payload = _json_result(context)
+
+
+@then("the envelope distinguishes attention usage from result count and reports truncation")
+def then_attention_distinct_from_results(context):
+    assert context.payload["attention"]["truncated"] is True
+    assert context.payload["count"] <= 1
+    assert context.payload["truncated"] is True
+
+
+@given("a branch with global and bounded memories across monorepo areas")
+def given_monorepo_area_branch(context):
+    init_repo(context)
+    commit(context, "chore: base")
+    _git(context, "switch", "-c", "areas")
+    _commit_files(
+        context,
+        "feat: global",
+        "zmem(DECISION): global memory",
+        {"a/global": "a", "b/global": "b", "c/global": "c", "d/global": "d"},
+    )
+    _commit_files(context, "feat: area a", "zmem(DECISION): area a memory", {"a/item": "a"})
+    context.area_branch_head = _commit_files(
+        context,
+        "feat: area b",
+        "zmem(DECISION): area b memory",
+        {"b/sub/item": "b"},
+    )
+    _commit_files(context, "feat: area c", "zmem(DECISION): area c memory", {"c/item": "c"})
+    context.area_branch_head = _git(context, "rev-parse", "HEAD")
+    _git(context, "switch", "-")
+
+
+@when("I recall that branch for area b/sub")
+def when_recall_branch_area(context):
+    run_zmem(context, "recall", "--ref", "areas", "--area", "b/sub")
+    context.payload = _json_result(context)
+
+
+@then("only global or hierarchically overlapping valid entries are returned")
+def then_area_recall_filters(context):
+    assert context.completed.returncode == 0
+    assert {row["content"] for row in context.payload["results"]} == {"global memory", "area b memory"}
+
+
+@given("a selected trail with matching text across several affected areas")
+def given_text_across_areas(context):
+    given_monorepo_area_branch(context)
+
+
+@when("I search that ref with text and multiple affected areas")
+def when_search_ref_multiple_areas(context):
+    run_zmem(
+        context,
+        "search",
+        "memory",
+        "--ref",
+        "areas",
+        "--area",
+        "a",
+        "--area",
+        "b/sub",
+    )
+    context.payload = _json_result(context)
+
+
+@then("only text matches in at least one requested area preserve the other filters")
+def then_search_area_or_semantics(context):
+    assert context.completed.returncode == 0
+    assert {row["content"] for row in context.payload["results"]} == {
+        "global memory",
+        "area a memory",
+        "area b memory",
+    }
+
+
+def _seed_schema_three(context) -> str:
+    import sqlite3
+
+    init_repo(context)
+    oid = commit(context, "feat: legacy", "zmem(DECISION): legacy")
+    database_path = context.home / "db" / "entries.db"
+    database_path.parent.mkdir(parents=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            PRAGMA foreign_keys=ON;
+            PRAGMA user_version=3;
+            CREATE TABLE repositories(id INTEGER PRIMARY KEY,path TEXT NOT NULL UNIQUE,trusted_extensions INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE anchors(repository_id INTEGER PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,head TEXT NOT NULL,schema_version INTEGER NOT NULL,extension_hash TEXT NOT NULL,attention_identity TEXT NOT NULL);
+            CREATE TABLE commits(repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,oid TEXT NOT NULL,commit_time INTEGER NOT NULL,message TEXT NOT NULL,PRIMARY KEY(repository_id,oid));
+            CREATE TABLE entries(repository_id INTEGER NOT NULL,commit_oid TEXT NOT NULL,annotation_index INTEGER NOT NULL,entry_type TEXT NOT NULL,content TEXT NOT NULL,score REAL NOT NULL,valid INTEGER NOT NULL,commit_time INTEGER NOT NULL DEFAULT 0,scope TEXT,PRIMARY KEY(repository_id,commit_oid,annotation_index),FOREIGN KEY(repository_id,commit_oid) REFERENCES commits(repository_id,oid) ON DELETE CASCADE);
+            CREATE TABLE relationships(repository_id INTEGER NOT NULL,commit_oid TEXT NOT NULL,source TEXT NOT NULL,target TEXT NOT NULL,score REAL NOT NULL,FOREIGN KEY(repository_id,commit_oid) REFERENCES commits(repository_id,oid) ON DELETE CASCADE);
+            CREATE TABLE diagnostics(repository_id INTEGER NOT NULL,commit_oid TEXT NOT NULL,message TEXT NOT NULL,FOREIGN KEY(repository_id,commit_oid) REFERENCES commits(repository_id,oid) ON DELETE CASCADE);
+            CREATE TABLE inspections(commit_oid TEXT NOT NULL,parser_protocol INTEGER NOT NULL,annotation_count INTEGER NOT NULL,parser_diagnostics TEXT NOT NULL,PRIMARY KEY(commit_oid,parser_protocol));
+            """
+        )
+        connection.execute("INSERT INTO repositories VALUES(1,?1,0)", [str(context.repo.resolve())])
+        connection.execute("INSERT INTO commits VALUES(1,?1,10,'zmem(DECISION): legacy')", [oid])
+        connection.execute(
+            "INSERT INTO entries VALUES(1,?1,1,'DECISION','legacy',1.0,1,10,NULL)",
+            [oid],
+        )
+        connection.execute("INSERT INTO anchors VALUES(1,?1,3,'legacy','legacy')", [oid])
+    return oid
+
+
+@given("a migrated memory entry without affected-area metadata")
+def given_migrated_memory_without_area(context):
+    context.legacy_oid = _seed_schema_three(context)
+
+
+@when("I recall it with an affected-area filter")
+def when_recall_migrated_area(context):
+    run_zmem(context, "recall", "--area", "unrelated/subtree")
+    context.payload = _json_result(context)
+
+
+@then("the entry reports null affected areas and remains visible")
+def then_legacy_memory_is_global(context):
+    assert context.completed.returncode == 0
+    assert context.payload["count"] == 1
+    assert context.payload["results"][0]["affected_areas"] is None
+
+
+@given("a new commit changing a root file, sibling paths under a, and one subtree under b")
+def given_three_compact_areas(context):
+    init_repo(context)
+    context.three_area_head = _commit_files(
+        context,
+        "feat: compact areas",
+        "zmem(DECISION): compact areas",
+        {
+            "root.txt": "root",
+            "a/one.txt": "one",
+            "a/two.txt": "two",
+            "b/sub/item.txt": "item",
+        },
+    )
+
+
+@when("the commit enters the compatible cache")
+def when_area_commit_enters_cache(context):
+    run_zmem(context, "recall")
+    context.payload = _json_result(context)
+
+
+@then("its affected areas are root, a, and b/sub")
+def then_three_compact_areas(context):
+    entry = next(row for row in context.payload["results"] if row["sha"] == context.three_area_head)
+    assert entry["affected_areas"] == ["<root>", "a", "b/sub"]
+
+
+@given("a new commit whose compact provenance has four areas")
+def given_four_compact_areas(context):
+    init_repo(context)
+    context.four_area_head = _commit_files(
+        context,
+        "feat: broad areas",
+        "zmem(DECISION): global by breadth",
+        {"a/item": "a", "b/item": "b", "c/item": "c", "d/item": "d"},
+    )
+
+
+@then("its affected areas are null and match every area query")
+def then_four_areas_global(context):
+    entry = next(row for row in context.payload["results"] if row["sha"] == context.four_area_head)
+    assert entry["affected_areas"] is None
+    run_zmem(context, "recall", "--area", "any/deep/path")
+    filtered = _json_result(context)
+    assert filtered["count"] == 1 and filtered["results"][0]["sha"] == context.four_area_head
+
+
+@given("a selected trail with entries in a complete META range")
+def given_complete_meta_range(context):
+    init_repo(context)
+    context.meta_from = commit(context, "feat: first", "zmem(DECISION): first canonical")
+    context.meta_to = commit(context, "docs: second", "zmem(LESSON_LEARNT): second canonical", "second")
+
+
+@when("a descendant META replaces owner and adds a tag across that range")
+def when_meta_replaces_and_adds(context):
+    context.meta_head = commit(
+        context,
+        "chore: metadata",
+        f"zmem(META)[{context.meta_from[:10]}, {context.meta_to[:10]}, owner=platform, tags+=reviewed]",
+        "meta",
+    )
+    run_zmem(context, "recall")
+    context.payload = _json_result(context)
+
+
+@then("each target reports the replacement owner and unique tag without changing canonical fields")
+def then_meta_layers_without_canonical_change(context):
+    targets = [row for row in context.payload["results"] if row["sha"] in {context.meta_from, context.meta_to}]
+    assert {row["content"] for row in targets} == {"first canonical", "second canonical"}
+    assert {row["type"] for row in targets} == {"DECISION", "LESSON_LEARNT"}
+    assert all(row["owner"] == "platform" and row["tags"] == ["reviewed"] for row in targets)
+
+
+@given("a selected trail with bounded affected areas")
+def given_bounded_affected_area(context):
+    init_repo(context)
+    context.area_target = _commit_files(
+        context,
+        "feat: bounded",
+        "zmem(DECISION): bounded metadata",
+        {"a/item.txt": "a"},
+    )
+
+
+@when("META resets affected areas across a complete range")
+def when_meta_resets_areas(context):
+    context.area_meta_head = commit(
+        context,
+        "chore: reset area",
+        f"zmem(META)[{context.area_target[:10]}, {context.area_target[:10]}, affected_areas=null]",
+        "reset",
+    )
+    run_zmem(context, "recall", "--area", "unrelated")
+    context.payload = _json_result(context)
+
+
+@then("each target reports null affected areas and matches every area query")
+def then_reset_area_is_global(context):
+    target = next(row for row in context.payload["results"] if row["sha"] == context.area_target)
+    assert target["affected_areas"] is None
+
+
+@given("a complete META range containing qualifying merged descendants")
+def given_python_merged_meta_range(context):
+    init_repo(context)
+    context.merge_from = commit(context, "feat: merge base", "zmem(DECISION): merge base")
+    main = _git(context, "branch", "--show-current")
+    _git(context, "switch", "-c", "side")
+    context.merge_side = _commit_files(
+        context,
+        "feat: side",
+        "zmem(LESSON_LEARNT): merge side",
+        {"side/item": "side"},
+    )
+    _git(context, "switch", main)
+    context.merge_main = _commit_files(
+        context,
+        "feat: main",
+        "zmem(LESSON_LEARNT): merge main",
+        {"main/item": "main"},
+    )
+    _git(context, "merge", "--no-ff", "-m", "merge side", "side")
+    context.merge_to = _git(context, "rev-parse", "HEAD")
+    context.merge_meta_head = commit(
+        context,
+        "chore: merge metadata",
+        f"zmem(META)[{context.merge_from[:10]}, {context.merge_to[:10]}, owner=merged]",
+        "meta",
+    )
+
+
+@when("the selected trail applies the metadata patch")
+def when_python_applies_merged_patch(context):
+    run_zmem(context, "recall")
+    context.payload = _json_result(context)
+
+
+@then("every commit in the inclusive reachable range receives the patch")
+def then_python_merged_range_patched(context):
+    by_sha = {row["sha"]: row for row in context.payload["results"]}
+    for oid in (context.merge_from, context.merge_side, context.merge_main):
+        assert by_sha[oid]["owner"] == "merged"
+
+
+@given("attention omits part of a requested META range")
+def given_python_truncated_meta(context):
+    init_repo(context)
+    context.truncated_target = commit(context, "feat: target", "zmem(DECISION): unchanged")
+    context.truncated_head = commit(
+        context,
+        "chore: meta",
+        f"zmem(META)[{context.truncated_target[:10]}, {context.truncated_target[:10]}, owner=nope]",
+        "meta",
+    )
+
+
+@when("the trail containing that META is constructed")
+def when_construct_python_truncated_meta(context):
+    run_zmem(context, "--node-limit", "1", "recall")
+    context.payload = _json_result(context)
+
+
+@then("no target metadata changes and an incomplete-range diagnostic is returned")
+def then_python_truncated_meta_atomic(context):
+    assert context.completed.returncode == 4
+    assert "incomplete META range" in context.payload["error"]
+    import sqlite3
+
+    with sqlite3.connect(context.home / "db" / "entries.db") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM trails").fetchone()[0] == 0
+
+
+@given("incomparable META assignments conflict on one metadata key")
+def given_python_concurrent_meta(context):
+    init_repo(context)
+    context.conflict_target = commit(context, "feat: conflict", "zmem(DECISION): conflict target")
+    main = _git(context, "branch", "--show-current")
+    _git(context, "switch", "-c", "owner-b")
+    _commit_files(
+        context,
+        "chore: owner b",
+        f"zmem(META)[{context.conflict_target[:10]}, {context.conflict_target[:10]}, owner=beta]",
+        {"owner-b": "b"},
+    )
+    _git(context, "switch", main)
+    _commit_files(
+        context,
+        "chore: owner a",
+        f"zmem(META)[{context.conflict_target[:10]}, {context.conflict_target[:10]}, owner=alpha]",
+        {"owner-a": "a"},
+    )
+    _git(context, "merge", "--no-ff", "-m", "merge owners", "owner-b")
+    context.conflict_merge = _git(context, "rev-parse", "HEAD")
+
+
+@when("the selected trail reaches their merge without a descendant assignment")
+def when_query_python_metadata_conflict(context):
+    run_zmem(context, "recall")
+    context.payload = _json_result(context)
+
+
+@then("that key reports conflict until a descendant META resolves it")
+def then_python_conflict_then_resolution(context):
+    conflicted = next(row for row in context.payload["results"] if row["sha"] == context.conflict_target)
+    assert conflicted["owner"] is None and conflicted["metadata_conflicts"] == ["owner"]
+    commit(
+        context,
+        "chore: resolve",
+        f"zmem(META)[{context.conflict_target[:10]}, {context.conflict_target[:10]}, owner=resolved]",
+        "resolved",
+    )
+    run_zmem(context, "recall")
+    resolved = next(row for row in _json_result(context)["results"] if row["sha"] == context.conflict_target)
+    assert resolved["owner"] == "resolved" and resolved["metadata_conflicts"] == []
+
+
+@given("a commit containing a META owner replacement and tag addition")
+def given_parseable_meta_annotation(context):
+    context.message = "zmem(META)[abc123, def456, owner=platform, tags+=security]"
+
+
+@then("one ordered metadata-patch effect is emitted and no META entry is materialized")
+def then_one_meta_effect_no_entry(context):
+    assert len(context.actions) == 1
+    assert context.actions[0].kind == "metadata_patch"
+    assert [operation["key"] for operation in context.actions[0].payload["operations"]] == ["owner", "tags"]
+
+
+@given("a commit containing one valid metadata effect and no entry annotation")
+def given_effect_only_commit(context):
+    init_repo(context)
+    context.effect_target = commit(context, "feat: target", "zmem(DECISION): effect target")
+    context.effect_only_head = commit(
+        context,
+        "chore: metadata only",
+        f"zmem(META)[{context.effect_target[:10]}, {context.effect_target[:10]}, owner=effect]",
+        "effect",
+    )
+
+
+@when("the commit is queried after expansion")
+def when_query_effect_only_commit(context):
+    run_zmem(context, "recall")
+    context.payload = _json_result(context)
+
+
+@then("its complete target is updated and the effect commit contributes no queryable entry")
+def then_effect_only_updates_target(context):
+    target = next(row for row in context.payload["results"] if row["sha"] == context.effect_target)
+    assert target["owner"] == "effect"
+    assert all(row["sha"] != context.effect_only_head for row in context.payload["results"])

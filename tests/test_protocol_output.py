@@ -13,6 +13,11 @@ def test_envelope_shape():
     }
 
 
+def test_envelope_preserves_typed_trail_identity():
+    trail = {"trail_id": "trail-1", "resolved_oid": "a" * 40}
+    assert envelope("recall", [], trail=trail)["trail"] is trail
+
+
 def test_protocol_rejects_wrong_version():
     with pytest.raises(ProtocolError):
         decode_request(b'{"protocol_version":99,"operation":"expand"}')

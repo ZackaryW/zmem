@@ -7,7 +7,7 @@ Defines trusted Python expanders and hooks that extend annotation behavior witho
 ## Requirements
 
 ### Requirement: Expanders and hooks have separate authority
-An expander SHALL receive a typed expansion context containing the current annotation and commit context, SHALL perform canonical work only through context actions such as adding an entry, adding a relationship, decaying a target, cancelling a target, or recording a diagnostic, and SHALL return no expansion value. A hook SHALL observe `after_expand` or `after_index` through a read-only hook context and MAY perform external side effects, but SHALL NOT perform canonical actions or modify entries, scores, effects, anchors, or relationships.
+An expander SHALL receive a typed expansion context containing the current annotation and commit context, SHALL perform canonical work only through context actions such as adding an entry, adding a relationship, decaying a target, cancelling a target, recording a metadata patch, or recording a diagnostic, and SHALL return no expansion value. A hook SHALL observe `after_expand` or `after_index` through a read-only hook context and MAY perform external side effects, but SHALL NOT perform canonical actions or modify entries, scores, effects, trail state, metadata, or relationships.
 
 #### Scenario: Expander performs a context action
 - **WHEN** the DECISION expander handles a supported annotation

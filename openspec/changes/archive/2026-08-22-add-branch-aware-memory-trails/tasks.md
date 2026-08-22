@@ -24,6 +24,6 @@
 
 ## 5. Documentation and Complete Verification
 
-- [ ] 5.1 Document META syntax and precedence, declared keys, null/global compatibility, affected-area matching, live refs, trail provenance, and the coordinated native release prerequisite.
-- [ ] 5.2 Run the supported Python lock/sync check, formatter and lint gates, complete unit suite, every capability-owned Behave root independently, and a clean `uv build`.
-- [ ] 5.3 Verify the installed runtime rejects incompatible protocol/schema pairs and passes an end-to-end query against the paired `zmem-cache` build.
+- [x] 5.1 Document META syntax and precedence, declared keys, null/global compatibility, affected-area matching, live refs, trail provenance, and the coordinated native release prerequisite.
+- [x] 5.2 Run the supported Python lock/sync check, formatter and lint gates, complete unit suite, every capability-owned Behave root independently, and a clean `uv build`.
+- [x] 5.3 Verify the installed runtime rejects incompatible protocol/schema pairs and passes an end-to-end query against the paired `zmem-cache` build.

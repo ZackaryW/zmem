@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.metadata
 import json
 import platform
 import shutil
@@ -839,7 +838,16 @@ def _release_target() -> str:
 
 
 def _serve_release(context, *, corrupt: bool, newer_incompatible: bool = False) -> None:
-    release = importlib.metadata.version("zmem")
+    identity = json.loads(
+        subprocess.run(
+            [context.env["ZMEM_SVC"], "version-json"],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=context.env,
+        ).stdout
+    )
+    release = identity["release_version"]
     target = _release_target()
     name = f"zmem-svc-{target}" + (".exe" if target.endswith("windows-msvc") else "")
     release_dir = context.temp_root / "releases" / f"v{release}"
@@ -850,8 +858,8 @@ def _serve_release(context, *, corrupt: bool, newer_incompatible: bool = False) 
     manifest = {
         "manifest_version": 1,
         "release_version": release,
-        "protocol_version": 3,
-        "schema_version": 3,
+        "protocol_version": identity["protocol_version"],
+        "schema_version": identity["schema_version"],
         "assets": [
             {
                 "target": target,

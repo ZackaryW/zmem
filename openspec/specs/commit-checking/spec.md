@@ -62,8 +62,8 @@ Check SHALL use supported built-ins and the active trusted expander set, SHALL s
 - **THEN** check includes its context actions while invoking no registered hook
 
 ### Requirement: Hypothetical state is not persisted
-Check SHALL NOT modify Git, persist its hypothetical commit, actions, effects, relationships, or diagnostics, or advance a repository anchor. A fast check MAY perform the same real-HEAD synchronization that precedes a normal query.
+Check SHALL NOT modify Git or persist its hypothetical commit, actions, effects, relationships, diagnostics, or trail state. A fast check MAY perform the same real-HEAD trail synchronization that precedes a normal query.
 
 #### Scenario: Query after fast check
 - **WHEN** a successful fast check is followed by a query without any new Git commit
-- **THEN** the query contains no entry, relationship, diagnostic, or anchor change from the hypothetical message
+- **THEN** the query contains no entry, relationship, diagnostic, metadata, or trail-state change from the hypothetical message

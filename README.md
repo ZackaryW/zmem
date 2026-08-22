@@ -76,6 +76,15 @@ zmem(CANCEL)[a1b2c3d4, 1]
 
 DECAY multiplies a valid entry's score by a factor from `0.0` through `1.0`. CANCEL applies only to DECISION entries and makes the target invalid with score `0.0`. Neither action is stored as a memory entry.
 
+META applies typed metadata changes to an inclusive commit range without creating a memory entry:
+
+```text
+zmem(META)[a1b2c3d4, e5f6a7b8, affected_areas=b/services, owner=platform, tags+=security]
+zmem(META)[a1b2c3d4, e5f6a7b8, affected_areas=null]
+```
+
+The endpoints must identify a complete reachable ancestry range before the META commit. `key=value` replaces a value, `key+=value` adds one unique set member, and `key=null` resets the key. The declared keys are `affected_areas`, `owner`, and `tags`; canonical entry fields such as event, content, conventional scope, score, and validity cannot be changed. A descendant META takes precedence over an ancestor. Conflicting changes on concurrent branches remain diagnostic until a later descendant META resolves them.
+
 ## Commands
 
 Commands emit JSON by default; add `--human` for compact terminal output.
@@ -83,8 +92,9 @@ Commands emit JSON by default; add `--human` for compact terminal output.
 ```console
 zmem recall --event DECISION --scope cache --limit 20
 zmem recall --since HEAD~10
+zmem recall --ref feature/payments --area b/services --area c
 zmem show a1b2c3d4 --diff-content
-zmem search sqlite --in all --include-invalid
+zmem search sqlite --ref v2.0.0 --area b --in all --include-invalid
 zmem links --min-score 0.5
 zmem check --file .git/COMMIT_EDITMSG
 zmem check --file .git/COMMIT_EDITMSG --deep
@@ -94,6 +104,10 @@ zmem check HEAD --deep
 ```
 
 Repository errors, missing commits, and service errors use distinct nonzero exit categories and structured error payloads.
+
+Snapshot queries resolve `--ref` as a live Git commit-ish without checking it out. The client sends both the selector and its observed OID; if the ref moves before native synchronization, the query fails with a structured stale-ref error instead of returning a different snapshot. Successful JSON envelopes include the immutable selected trail's requested selector, resolved HEAD, attention usage, extension identity, and protocol/schema identity.
+
+New commits receive conservative path-derived `affected_areas`. Root-level files map to `<root>`; paths within a top-level folder are reduced to their deepest common parent; rename sources and destinations both participate. Up to three compact areas are retained, while a broader blast radius becomes `null`. Repeatable `--area` filters are ORed with one another and ANDed with other filters. Parent and child areas overlap hierarchically, `<root>` matches root-level provenance, and `null` is global and always matches. Legacy database entries remain `null` until a later META patch narrows them, so upgrading does not require replaying every historical commit.
 
 `check` treats a file or standard-input message as a hypothetical successor to the current `HEAD`. It runs active trusted expanders, skips hooks, and reports projected entries, relationships, DECAY/CANCEL effects, diagnostics, and before/after target state without persisting the hypothetical commit. Zero annotations are valid unless `--require-annotation` is supplied. `check --file <path> --deep` is the primary effect-validation path: it reconstructs the selected history in isolation before evaluating the file. A commit reference remains available for historical auditing.
 
@@ -127,7 +141,7 @@ def register(registry, mode="extend") -> None:
     registry.extend("RISK", RiskExpander())
 ```
 
-Available context actions are `add_entry`, `add_relationship`, `decay`, `cancel`, and `diagnose`. A non-`None` return is rejected. Hooks register for `after_expand` or `after_index`, receive read-only data, and cannot mutate canonical actions. Module ordering, collision handling, and extension identities are deterministic.
+Available context actions are `add_entry`, `add_relationship`, `decay`, `cancel`, `metadata_patch`, and `diagnose`. A non-`None` return is rejected. Hooks register for `after_expand` or `after_index`, receive read-only data, and cannot mutate canonical actions. Module ordering, collision handling, and extension identities are deterministic.
 
 ## Verification
 
@@ -136,6 +150,8 @@ uv run pytest
 uv run behave features/annotation-vocabulary
 uv run behave features/python-extensions
 uv run behave features/memory-cli
+uv run behave features/memory-metadata
+uv run behave features/memory-trails
 uv run behave features/commit-checking
 uv run behave features/service-management
 uv build

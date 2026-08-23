@@ -1,7 +1,7 @@
 Feature: Live immutable memory trails
   Scenario: Query an unoccupied branch
     Given a repository with an unoccupied branch containing memory
-    When I query that branch without checking it out
+    When I query that branch for trail output without checking it out
     Then the result uses an immutable trail through the branch head without changing the worktree
 
   Scenario: Branch moves during a query
@@ -11,5 +11,5 @@ Feature: Live immutable memory trails
 
   Scenario: Two names resolve to one trail
     Given two Git selectors resolving to one commit under identical identities
-    When I query memory through both selectors
+    When I query memory with trail output through both selectors
     Then both envelopes identify the same immutable trail and their requested selectors

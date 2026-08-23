@@ -1254,9 +1254,9 @@ def given_unoccupied_memory_branch(context):
     context.worktree_before = _git(context, "status", "--porcelain=v1", "--branch")
 
 
-@when("I query that branch without checking it out")
+@when("I query that branch for trail output without checking it out")
 def when_query_unoccupied_memory_branch(context):
-    run_zmem(context, "recall", "--ref", "memory-branch")
+    run_zmem(context, "recall", "--ref", "memory-branch", "--trail")
     context.payload = _json_result(context)
 
 
@@ -1320,11 +1320,11 @@ def given_two_selectors_one_commit(context):
     _git(context, "branch", "selector-b", context.shared_selector_oid)
 
 
-@when("I query memory through both selectors")
+@when("I query memory with trail output through both selectors")
 def when_query_two_selectors(context):
     context.selector_payloads = []
     for selector in ("selector-a", "selector-b"):
-        run_zmem(context, "recall", "--ref", selector)
+        run_zmem(context, "recall", "--ref", selector, "--trail")
         assert context.completed.returncode == 0, (context.completed.stdout, context.completed.stderr)
         context.selector_payloads.append(_json_result(context))
 

@@ -10,9 +10,10 @@ Use only these canonical actions:
 - `context.add_relationship(source, target, score=1.0)`
 - `context.decay(target, factor)`
 - `context.cancel(target)`
+- `context.metadata_patch(patch)`
 - `context.diagnose(message)`
 
-Scores and decay factors must be finite values from `0.0` through `1.0`. Actions are journaled for the service; do not update SQLite directly and do not return a mapping.
+Scores and decay factors must be finite values from `0.0` through `1.0`. `metadata_patch` accepts a typed `MetadataPatch`; the service validates its declared keys, operators, complete ancestry range, and trail-specific precedence before applying it atomically. It creates no entry and cannot change canonical entry fields. Actions are journaled for the service; do not update SQLite directly and do not return a mapping.
 
 ```python
 API_VERSION = 1
@@ -56,7 +57,7 @@ def register(registry) -> None:
     registry.register("after_index", audit)
 ```
 
-If behavior must create or alter entries, relationships, scores, validity, or diagnostics, implement an expander instead of a hook.
+If behavior must create or alter entries, relationships, scores, validity, metadata, trail state, or diagnostics, implement an expander instead of a hook.
 
 ## Discovery and Layering
 
@@ -78,6 +79,6 @@ Repository modules use `${ZMEM_CUSTOM_EXT_ROOT:-.zmem}`:
 
 Repository extensions execute only for a repository added with extension trust, such as `zmem-svc add <path> --trust-extensions`. Treat trust as code-execution authority, not as a parser option.
 
-Every module must expose `API_VERSION = 1` and callable `register`. Files are discovered recursively in deterministic case-insensitive path order. Source or path changes alter extension identity and trigger rebuilding; do not depend on incidental filesystem order.
+Every module must expose `API_VERSION = 1` and callable `register`. This module API version is independent of the service protocol/schema identity. Files are discovered recursively in deterministic case-insensitive path order. Source or path changes alter extension identity and select or construct a different immutable trail without mutating retained trails; do not depend on incidental filesystem order.
 
 Keep reusable framework abstractions under `src/zmem/ext/expander/` or `src/zmem/ext/hooks/`, utility code under `src/zmem/utils/`, and built-in implementations under `src/zmem/builtin/`.

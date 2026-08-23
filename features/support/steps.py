@@ -1376,6 +1376,42 @@ def then_empty_envelope_has_trail(context):
     assert context.payload["trail"]["resolved_oid"] == context.empty_head
 
 
+@when("I run every snapshot command with default and explicit trail output")
+def when_run_snapshot_commands_with_trail_controls(context):
+    commands = {
+        "recall": ("recall",),
+        "search": ("search", "missing"),
+        "show": ("show", context.empty_head),
+        "links": ("links",),
+    }
+    context.snapshot_query_pairs = {}
+    for name, command in commands.items():
+        run_zmem(context, *command)
+        default = {
+            "returncode": context.completed.returncode,
+            "stderr": context.completed.stderr,
+            "payload": _json_result(context),
+        }
+        run_zmem(context, *command, "--trail")
+        explicit = {
+            "returncode": context.completed.returncode,
+            "stderr": context.completed.stderr,
+            "payload": _json_result(context) if context.completed.returncode == 0 else None,
+        }
+        context.snapshot_query_pairs[name] = (default, explicit)
+
+
+@then("only explicit snapshot envelopes identify the selected trail")
+def then_only_explicit_snapshot_envelopes_have_trail(context):
+    for name, (default, explicit) in context.snapshot_query_pairs.items():
+        assert default["returncode"] == 0, default["stderr"]
+        assert "trail" not in default["payload"], f"default {name} exposed selected-trail identity"
+        assert explicit["returncode"] == 0, explicit["stderr"]
+        assert explicit["payload"]["trail"]["resolved_oid"] == context.empty_head
+        for key in ("attention", "command", "count", "results", "truncated"):
+            assert default["payload"][key] == explicit["payload"][key]
+
+
 @given("a trail whose attention and matching results both exceed their limits")
 def given_attention_and_result_limits(context):
     init_repo(context)

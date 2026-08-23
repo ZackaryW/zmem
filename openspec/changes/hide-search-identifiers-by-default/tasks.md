@@ -1,7 +1,7 @@
 ## 1. Regression Authority
 
-- [ ] 1.1 Add one independently runnable memory CLI scenario proving default recall, search, show, and links omit `trail` while each command's `--trail` restores the unchanged identity object.
-- [ ] 1.2 Add thin established step bindings that exercise the real CLI through shared lifecycle support and demonstrate RED before implementation.
+- [x] 1.1 Add one independently runnable memory CLI scenario proving default recall, search, show, and links omit `trail` while each command's `--trail` restores the unchanged identity object.
+- [x] 1.2 Add thin established step bindings that exercise the real CLI through shared lifecycle support and demonstrate RED before implementation.
 
 ## 2. Public CLI Correction
 

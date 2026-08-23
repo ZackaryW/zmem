@@ -36,6 +36,12 @@ Feature: Service-backed zmem commands
     When I recall its missing event type
     Then the complete empty envelope identifies the selected trail
 
+  # zpp-spec: {"root":"repo:openspec","capability":"memory-cli","requirement":"Commands use a common result envelope","feature":"features/memory-cli/memory-cli.feature","scenario":"Snapshot commands hide selected-trail identity unless requested"}
+  Scenario: Snapshot commands hide selected-trail identity unless requested
+    Given an indexed trail with no matching entries
+    When I run every snapshot command with default and explicit trail output
+    Then only explicit snapshot envelopes identify the selected trail
+
   Scenario: Attention truncation precedes result limiting
     Given a trail whose attention and matching results both exceed their limits
     When I search with bounded attention and a result limit

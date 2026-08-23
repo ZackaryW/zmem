@@ -93,6 +93,7 @@ Commands emit JSON by default; add `--human` for compact terminal output.
 zmem recall --event DECISION --scope cache --limit 20
 zmem recall --since HEAD~10
 zmem recall --ref feature/payments --area b/services --area c
+zmem recall --ref feature/payments --trail
 zmem show a1b2c3d4 --diff-content
 zmem search sqlite --ref v2.0.0 --area b --in all --include-invalid
 zmem links --min-score 0.5
@@ -105,7 +106,7 @@ zmem check HEAD --deep
 
 Repository errors, missing commits, and service errors use distinct nonzero exit categories and structured error payloads.
 
-Snapshot queries resolve `--ref` as a live Git commit-ish without checking it out. The client sends both the selector and its observed OID; if the ref moves before native synchronization, the query fails with a structured stale-ref error instead of returning a different snapshot. Successful JSON envelopes include the immutable selected trail's requested selector, resolved HEAD, attention usage, extension identity, and protocol/schema identity.
+Snapshot queries resolve `--ref` as a live Git commit-ish without checking it out. The client sends both the selector and its observed OID; if the ref moves before native synchronization, the query fails with a structured stale-ref error instead of returning a different snapshot. Recall, search, show, and links keep their default JSON envelopes compact by omitting the immutable selected-trail identity while retaining attention and truncation metadata. Add `--trail` to any of those commands when the requested selector, resolved HEAD, attention identity, extension identity, or protocol/schema identity is needed.
 
 New commits receive conservative path-derived `affected_areas`. Root-level files map to `<root>`; paths within a top-level folder are reduced to their deepest common parent; rename sources and destinations both participate. Up to three compact areas are retained, while a broader blast radius becomes `null`. Repeatable `--area` filters are ORed with one another and ANDed with other filters. Parent and child areas overlap hierarchically, `<root>` matches root-level provenance, and `null` is global and always matches. Legacy database entries remain `null` until a later META patch narrows them, so upgrading does not require replaying every historical commit.
 

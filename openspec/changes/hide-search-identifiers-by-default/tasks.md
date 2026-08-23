@@ -10,8 +10,8 @@
 
 ## 3. Consumer Guidance
 
-- [ ] 3.1 Update README snapshot examples and selected-trail guidance for the default omission and explicit opt-in.
-- [ ] 3.2 Update the repository memory-query skill to start with recent `recall --since HEAD~50`, use search for narrower topical retrieval, and request `--trail` only for selected-trail provenance.
+- [x] 3.1 Update README snapshot examples and selected-trail guidance for the default omission and explicit opt-in.
+- [x] 3.2 Update the repository memory-query skill to start with recent `recall --since HEAD~50`, use search for narrower topical retrieval, and request `--trail` only for selected-trail provenance.
 
 ## 4. Verification
 

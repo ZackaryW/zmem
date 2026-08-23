@@ -28,12 +28,13 @@ Feature: Service-backed zmem commands
 
   Scenario: First query in an unregistered repository
     Given an unregistered Git repository with memory on a non-checked-out ref
-    When I recall from that ref
+    When I recall from that ref with trail output
     Then the repository is registered and the result identifies its compatible trail
 
+  # zpp-spec: {"root":"repo:openspec","capability":"memory-cli","requirement":"Commands use a common result envelope","feature":"features/memory-cli/memory-cli.feature","scenario":"Empty successful query"}
   Scenario: Empty successful query
     Given an indexed trail with no matching entries
-    When I recall its missing event type
+    When I recall its missing event type with trail output
     Then the complete empty envelope identifies the selected trail
 
   # zpp-spec: {"root":"repo:openspec","capability":"memory-cli","requirement":"Commands use a common result envelope","feature":"features/memory-cli/memory-cli.feature","scenario":"Snapshot commands hide selected-trail identity unless requested"}

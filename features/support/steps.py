@@ -1341,9 +1341,9 @@ def given_unregistered_nonchecked_ref(context):
     given_unoccupied_memory_branch(context)
 
 
-@when("I recall from that ref")
+@when("I recall from that ref with trail output")
 def when_recall_unregistered_ref(context):
-    run_zmem(context, "recall", "--ref", "memory-branch")
+    run_zmem(context, "recall", "--ref", "memory-branch", "--trail")
     context.payload = _json_result(context)
 
 
@@ -1363,9 +1363,9 @@ def given_empty_match_trail(context):
     context.empty_head = commit(context, "feat: one", "zmem(DECISION): present")
 
 
-@when("I recall its missing event type")
+@when("I recall its missing event type with trail output")
 def when_recall_missing_type(context):
-    run_zmem(context, "recall", "--event", "MISSING")
+    run_zmem(context, "recall", "--event", "MISSING", "--trail")
     context.payload = _json_result(context)
 
 

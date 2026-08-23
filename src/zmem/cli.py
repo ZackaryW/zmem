@@ -62,10 +62,12 @@ def _parser() -> argparse.ArgumentParser:
     recall.add_argument("--events", action="store_true")
     recall.add_argument("--area", action="append")
     recall.add_argument("--ref", dest="trail_ref")
+    recall.add_argument("--trail", action="store_true")
     show = sub.add_parser("show")
     show.add_argument("sha")
     show.add_argument("--diff-content", action="store_true")
     show.add_argument("--ref", dest="trail_ref")
+    show.add_argument("--trail", action="store_true")
     search = sub.add_parser("search")
     search.add_argument("query", nargs="?")
     search.add_argument("--in", dest="domain", default="all")
@@ -75,11 +77,13 @@ def _parser() -> argparse.ArgumentParser:
     search.add_argument("--limit", type=int)
     search.add_argument("--area", action="append")
     search.add_argument("--ref", dest="trail_ref")
+    search.add_argument("--trail", action="store_true")
     links = sub.add_parser("links")
     links.add_argument("--from", dest="source")
     links.add_argument("--to", dest="target")
     links.add_argument("--min-score", type=float)
     links.add_argument("--ref", dest="trail_ref")
+    links.add_argument("--trail", action="store_true")
     check = sub.add_parser("check")
     check.add_argument("reference", nargs="?")
     inputs = check.add_mutually_exclusive_group()
@@ -209,12 +213,13 @@ def run(argv: list[str] | None = None) -> int:
         )
         attention = attention_metadata(snapshot["summary"])
         trail = snapshot["summary"]["trail"]
+        output_trail = trail if args.trail else None
         rows = snapshot["entries"]
         if args.command == "recall":
             if args.events:
                 counts = Counter(row["type"] for row in rows if row["valid"])
                 result = [{"event": event, "count": count} for event, count in counts.most_common()]
-                _emit(envelope("recall", result, attention=attention, trail=trail), args.human)
+                _emit(envelope("recall", result, attention=attention, trail=output_trail), args.human)
                 return 0
             rows = [row for row in rows if row["valid"]]
             if args.event:
@@ -259,7 +264,7 @@ def run(argv: list[str] | None = None) -> int:
             truncated = args.limit is not None and len(rows) > args.limit
             if args.limit is not None:
                 rows = rows[: args.limit]
-            _emit(envelope("recall", rows, truncated, attention, trail), args.human)
+            _emit(envelope("recall", rows, truncated, attention, output_trail), args.human)
         elif args.command == "search":
             if not args.include_invalid:
                 rows = [row for row in rows if row["valid"]]
@@ -284,7 +289,7 @@ def run(argv: list[str] | None = None) -> int:
             truncated = args.limit is not None and len(rows) > args.limit
             if args.limit is not None:
                 rows = rows[: args.limit]
-            _emit(envelope("search", rows, truncated, attention, trail), args.human)
+            _emit(envelope("search", rows, truncated, attention, output_trail), args.human)
         elif args.command == "show":
             sha = _resolve(repo, args.sha)
             if sha is None:
@@ -314,7 +319,7 @@ def run(argv: list[str] | None = None) -> int:
                 result["diff"] = subprocess.run(
                     ["git", "-C", str(repo), "show", "--format=", sha], capture_output=True, text=True, check=True
                 ).stdout
-            _emit(envelope("show", [result], attention=attention, trail=trail), args.human)
+            _emit(envelope("show", [result], attention=attention, trail=output_trail), args.human)
         else:
             relationships = snapshot.get("relationships", [])
             if args.source is not None:
@@ -323,7 +328,7 @@ def run(argv: list[str] | None = None) -> int:
                 relationships = [row for row in relationships if row["to"] == args.target]
             if args.min_score is not None:
                 relationships = [row for row in relationships if row["score"] >= args.min_score]
-            _emit(envelope("links", relationships, attention=attention, trail=trail), args.human)
+            _emit(envelope("links", relationships, attention=attention, trail=output_trail), args.human)
         return 0
     except ValueError as exc:
         print(json.dumps({"command": args.command, "category": "request", "error": str(exc)}))

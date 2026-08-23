@@ -5,8 +5,8 @@
 
 ## 2. Public CLI Correction
 
-- [ ] 2.1 Add command-local `--trail` parser options and conditionally pass the already-decoded trail to recall, search, show, and links envelopes.
-- [ ] 2.2 Prove the focused scenario GREEN and run the complete memory CLI Behave feature.
+- [x] 2.1 Add command-local `--trail` parser options and conditionally pass the already-decoded trail to recall, search, show, and links envelopes.
+- [x] 2.2 Prove the focused scenario GREEN and run the complete memory CLI Behave feature.
 
 ## 3. Consumer Guidance
 

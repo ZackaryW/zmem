@@ -15,5 +15,5 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Run focused Python tests for CLI/output behavior plus the complete Python test suite.
-- [ ] 4.2 Run repository lint, format checks, OpenSpec validation, and the affected Behave suite through the established runners.
+- [x] 4.1 Run focused Python tests for CLI/output behavior plus the complete Python test suite.
+- [x] 4.2 Run repository lint, format checks, OpenSpec validation, and the affected Behave suite through the established runners.

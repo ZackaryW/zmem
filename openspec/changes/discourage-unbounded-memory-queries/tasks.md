@@ -5,4 +5,4 @@
 ## 2. Verification
 
 - [x] 2.1 Run the skill validator against `skills/zmem-query-memory`.
-- [ ] 2.2 Validate the OpenSpec change and confirm only the intended skill guidance and planning artifacts changed.
+- [x] 2.2 Validate the OpenSpec change and confirm only the intended skill guidance and planning artifacts changed.

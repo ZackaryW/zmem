@@ -20,7 +20,7 @@ Read [references/query-contract.md](references/query-contract.md) before constru
 7. Rank candidates by direct relevance, selected-snapshot applicability, affected-area overlap, valid state, score, commit time, and proximity to the current code. Use `jq` when JSON structure or sorting matters.
 8. Inspect finalists with `zmem --repo <path> show <sha>` under the same `--ref` when one was selected, and add `--diff-content` only when the originating change is needed.
 9. Traverse relationships with `links` when provenance or connected entries affect the answer. Add `--trail` to a snapshot command only when its immutable selected-trail identity is needed for provenance or branch verification.
-10. If evidence is weak, broaden the recall boundary, synonyms, event types, scope, or affected areas, then repeat.
+10. If evidence is weak, broaden the recall boundary, synonyms, event types, scope, or affected areas, then repeat. Keep the default attention bounds for ordinary retrieval. When reported attention truncation leaves relevant evidence unresolved, increase one or both limits to finite positive values proportionally and retry. Do not use `--commit-limit -1 --node-limit -1` merely to broaden a query; reserve complete-history traversal for a question that explicitly requires it.
 11. Report the answer, relevant SHA/index, typed metadata or conflicts that affected selection, any explicitly inspected trail provenance, and any conflict with current repository evidence. Treat invalid entries as historical audit data only.
 
 ## Selection Rules

@@ -29,6 +29,8 @@ uvx zmem service status
 
 Manifest version 2 of `runtime.json` records independent `binary_version` and `host_version` values plus protocol, schema, checksum, installation, and active-path identity; it has no shared `release_version`. Version-1 manifests remain readable for replacement and upgrade. Upgrades use `.staging` and retain `.previous` until the replacement passes its health check.
 
+On Windows, the logon task uses the persistent host's `pythonw.exe` and a generated `start-service.pyw` launcher. The service starts with its console hidden from creation, and its Git and extension-host children inherit that hidden console. The launcher waits for the service and returns its exit status to Task Scheduler. Install or upgrade refreshes the task; uninstall removes the task and launcher.
+
 Source development can select the companion Rust build explicitly:
 
 ```console

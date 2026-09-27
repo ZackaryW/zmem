@@ -20,8 +20,12 @@ class RegistrationPlan:
     artifact_content: str
     install_commands: tuple[tuple[str, ...], ...]
     remove_commands: tuple[tuple[str, ...], ...]
+    required_paths: tuple[Path, ...] = ()
 
     def install(self, runner: Runner = subprocess.run) -> None:
+        for path in self.required_paths:
+            if not path.is_file():
+                raise FileNotFoundError(f"startup launcher is missing: {path}")
         if self.artifact_path is not None:
             self.artifact_path.parent.mkdir(parents=True, exist_ok=True)
             self.artifact_path.write_text(self.artifact_content, encoding="utf-8")
@@ -50,12 +54,32 @@ def registration_plan(
     executable = str(manifest.binary)
     if platform == "win32":
         task = "zmem-svc"
-        launch = f'"{executable}" serve'
+        artifact = paths.root / "start-service.pyw"
+        pythonw = manifest.host.with_name("pythonw.exe")
+        # pythonw has no console to flash before launch options take effect.
+        # The service's hidden console is inherited by Git/host descendants.
+        content = (
+            '"""Generated zmem scheduled-task launcher."""\n'
+            "import os\nimport subprocess\n\n"
+            "environment = os.environ.copy()\n"
+            f"environment['ZMEM_HOME'] = {str(paths.home)!r}\n"
+            f"environment['ZMEM_RUNTIME_ROOT'] = {str(paths.root)!r}\n"
+            "environment.pop('ZMEM_EXTENSION_HOST', None)\n"
+            "startup = subprocess.STARTUPINFO(\n"
+            "    dwFlags=subprocess.STARTF_USESHOWWINDOW, wShowWindow=subprocess.SW_HIDE)\n"
+            "result = subprocess.run(\n"
+            f"    [{executable!r}, 'serve'], cwd={str(paths.home)!r}, env=environment,\n"
+            "    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\n"
+            "    startupinfo=startup, creationflags=subprocess.CREATE_NEW_CONSOLE, check=False)\n"
+            "raise SystemExit(result.returncode)\n"
+        )
+        launch = subprocess.list2cmdline([str(pythonw), str(artifact)])
         return RegistrationPlan(
-            None,
-            "",
+            artifact,
+            content,
             (("schtasks.exe", "/Create", "/F", "/SC", "ONLOGON", "/TN", task, "/TR", launch),),
             (("schtasks.exe", "/Delete", "/F", "/TN", task),),
+            (pythonw,),
         )
     if platform == "darwin":
         uid = user_id if user_id is not None else os.getuid()

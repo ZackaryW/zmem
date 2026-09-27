@@ -56,7 +56,7 @@ zmem service doctor
 zmem service uninstall       # keeps config, extensions, repositories, and database
 ```
 
-Every service operation accepts `--home` and `--runtime-root` before its action. `ZMEM_HOME` and `ZMEM_RUNTIME_ROOT` provide the same isolation through the environment. Pass `--no-register` to install, upgrade, or uninstall for temporary integration environments. The CLI automatically registers the selected Git repository and waits for its current `HEAD` to be indexed.
+Every service operation accepts `--home` and `--runtime-root` before its action. `ZMEM_HOME` and `ZMEM_RUNTIME_ROOT` provide the same isolation through the environment. Pass `--no-register` to install, upgrade, or uninstall for temporary integration environments. Repository commands register the selected Git repository, but a cold snapshot query returns `not_ready` while its exact `HEAD` is indexed.
 
 ## Commit annotations
 
@@ -102,13 +102,18 @@ zmem check --file .git/COMMIT_EDITMSG --deep
 zmem check --stdin --conventional --max-subject-length 72
 zmem --commit-limit -1 --node-limit -1 check --file .git/COMMIT_EDITMSG --deep
 zmem check HEAD --deep
+zmem --timeout-ms 5000 --repo . recall --since HEAD~50
 ```
 
-Repository errors, missing commits, and service errors use distinct nonzero exit categories and structured error payloads.
+Repository errors, missing commits, and service errors use distinct nonzero exit categories and structured error payloads. Snapshot commands default to a 2000 ms execution deadline; `check` defaults to 120000 ms. Set a positive global `--timeout-ms` before the subcommand to override it. The deadline starts after argument validation and covers repository/ref discovery, the native call, and request-owned Git show or diff. On timeout, the client allows at most one additional second to terminate and reap its owned subprocess; the shared daemon continues running. Slow caller-provided stdin and terminal output are outside this execution budget.
+
+A cold query can return exit code 4 with `{"category":"service","code":"not_ready","retryable":true,"job_id":"job-<hex>","requested_oid":"<oid>","stage":"queued","retry_after_ms":250,...}`. It means that exact HEAD is indexing; it is not an empty successful result or an invalid annotation. The native `zmem-svc job-status <job-id>` command reports `queued`, `running`, `ready`, or `failed`; retry the same query explicitly after the job is ready. A failed job stays failed across restarts until a user explicitly invokes `zmem-svc job-retry <job-id>` after addressing its cause. `busy` and `timeout` are separate retryable service codes; `stale_ref` means the selector moved and needs a fresh observation. The CLI does not poll or automatically retry. A completed invalid check remains a semantic exit 5, while service delay or failure exits 4.
+
+Release or rollback must keep the client and native protocol/schema pair compatible. Publish a matching native binary before selecting it from a Python release. To roll back, stop the service, restore a matching pair, and restore a pre-upgrade database backup or rebuild the derived cache in a separate `ZMEM_HOME`; an older native writer must never open schema 6.
 
 Snapshot queries resolve `--ref` as a live Git commit-ish without checking it out. The client sends both the selector and its observed OID; if the ref moves before native synchronization, the query fails with a structured stale-ref error instead of returning a different snapshot. Recall, search, show, and links keep their default JSON envelopes compact by omitting the immutable selected-trail identity while retaining attention and truncation metadata. Add `--trail` to any of those commands when the requested selector, resolved HEAD, attention identity, extension identity, or protocol/schema identity is needed.
 
-New commits receive conservative path-derived `affected_areas`. Root-level files map to `<root>`; paths within a top-level folder are reduced to their deepest common parent; rename sources and destinations both participate. Up to three compact areas are retained, while a broader blast radius becomes `null`. Repeatable `--area` filters are ORed with one another and ANDed with other filters. Parent and child areas overlap hierarchically, `<root>` matches root-level provenance, and `null` is global and always matches. Legacy database entries remain `null` until a later META patch narrows them, so upgrading does not require replaying every historical commit.
+New commits receive conservative path-derived `affected_areas`. Root-level files map to `<root>`; paths within a top-level folder are reduced to their deepest common parent; rename sources and destinations both participate. Up to three compact areas are retained, while a broader blast radius becomes `null`. Repeatable `--area` filters are ORed with one another and ANDed with other filters. Parent and child areas overlap hierarchically, `<root>` matches root-level provenance, and `null` is global and always matches. Migrated legacy trails retain their original null areas; current queries construct a compatible trail with current path metadata when the old trail identity does not match.
 
 `check` treats a file or standard-input message as a hypothetical successor to the current `HEAD`. It runs active trusted expanders, skips hooks, and reports projected entries, relationships, DECAY/CANCEL effects, diagnostics, and before/after target state without persisting the hypothetical commit. Zero annotations are valid unless `--require-annotation` is supplied. `check --file <path> --deep` is the primary effect-validation path: it reconstructs the selected history in isolation before evaluating the file. A commit reference remains available for historical auditing.
 

@@ -33,8 +33,8 @@ def test_trail_summary_strictly_decodes_typed_identity():
         "selected_commits": 3,
         "selected_nodes": 2,
         "extension_identity": "ext-1",
-        "protocol_version": 4,
-        "schema_version": 4,
+        "protocol_version": 5,
+        "schema_version": 6,
     }
     assert TrailSummary.from_mapping(payload).to_mapping() == payload
     with pytest.raises((TypeError, ValueError)):

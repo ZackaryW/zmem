@@ -1,8 +1,8 @@
 Feature: Typed memory metadata
-  Scenario: Legacy entry has global applicability
+  Scenario: Migrated entry gains provenance from its rebuilt exact trail
     Given a migrated memory entry without affected-area metadata
     When I recall it with an affected-area filter
-    Then the entry reports null affected areas and remains visible
+    Then the rebuilt entry has its Git affected area and unrelated areas do not match
 
   Scenario: Three compact areas are retained
     Given a new commit changing a root file, sibling paths under a, and one subtree under b

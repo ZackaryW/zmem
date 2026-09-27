@@ -17,13 +17,14 @@ class ObservedRef:
     oid: str
 
 
-def observe_ref(repository: Path, selector: str | None) -> ObservedRef:
+def observe_ref(repository: Path, selector: str | None, *, timeout: float | None = None) -> ObservedRef:
     target = selector or "HEAD"
     completed = subprocess.run(
         ["git", "-C", repository, "rev-parse", "--verify", f"{target}^{{commit}}"],
         capture_output=True,
         text=True,
         check=False,
+        timeout=timeout,
     )
     if completed.returncode:
         raise ValueError(completed.stderr.strip() or f"cannot resolve Git selector: {target}")

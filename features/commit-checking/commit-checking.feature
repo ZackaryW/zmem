@@ -52,3 +52,8 @@ Feature: Preview zmem commit messages before committing
     When I check that file deeply below the required attention
     Then the check fails with an attention-threshold diagnostic
     And it does not claim the decision is absent from complete history
+
+  Scenario: Cancelled deep check leaves cached lookup responsive
+    Given an isolated cached trail and a separate cold indexing job
+    When a deep check exceeds its client deadline during replay
+    Then the check reports timeout and the exact cached trail remains available

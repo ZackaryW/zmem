@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -542,6 +543,9 @@ def step_run_recall(context):
 @then("the service is available and indexed through that HEAD")
 def step_service_indexed(context):
     assert context.completed.returncode == 0, (context.completed.stdout, context.completed.stderr)
+    assert context.pending_failure["code"] == "not_ready"
+    assert context.pending_failure["requested_oid"] == context.head
+    assert context.pending_failure["job_id"]
     assert (context.home / "db" / "entries.db").exists()
 
 
@@ -1285,9 +1289,18 @@ def given_client_ref_race(context):
         " open(path,'w').write('moved\\n')\n"
         " subprocess.run(['git','-C',repo,'add','race.txt'],check=True)\n"
         " subprocess.run(['git','-C',repo,'commit','-q','-m','feat: move during query'],check=True)\n"
+        "if os.name == 'nt':\n"
+        " result=subprocess.run([real,*sys.argv[1:]],capture_output=True)\n"
+        " sys.stdout.buffer.write(result.stdout)\n"
+        " sys.stderr.buffer.write(result.stderr)\n"
+        " sys.exit(result.returncode)\n"
         "os.execv(real,[real,*sys.argv[1:]])\n"
     )
     wrapper.chmod(0o755)
+    if sys.platform == "win32":
+        launcher = context.temp_root / "move-ref-before-service.cmd"
+        launcher.write_text(f'@echo off\r\n"{sys.executable}" "{wrapper}" %*\r\n')
+        wrapper = launcher
     context.env["REAL_ZMEM_SVC"] = real_service
     context.env["RACE_REPO"] = str(context.repo)
     context.env["ZMEM_SVC"] = str(wrapper)
@@ -1301,9 +1314,9 @@ def when_query_racing_branch(context):
 
 @then("the query fails with a structured stale-ref error and publishes no trail")
 def then_structured_stale_ref(context):
-    assert context.completed.returncode == 4
-    assert context.payload["category"] == "stale_ref"
-    assert "stale ref" in context.payload["error"]
+    assert context.completed.returncode == 4, (context.completed.stdout, context.completed.stderr)
+    assert context.payload["category"] == "stale_ref", context.payload
+    assert "stale ref" in context.payload["error"], context.payload
     database_path = context.home / "db" / "entries.db"
     if database_path.exists():
         import sqlite3
@@ -1350,6 +1363,9 @@ def when_recall_unregistered_ref(context):
 @then("the repository is registered and the result identifies its compatible trail")
 def then_registered_ref_trail(context):
     assert context.completed.returncode == 0
+    assert context.pending_failure["code"] == "not_ready"
+    assert context.pending_failure["requested_oid"] == context.memory_branch_oid
+    assert context.pending_failure["job_id"]
     assert context.payload["trail"]["resolved_oid"] == context.memory_branch_oid
     import sqlite3
 
@@ -1539,15 +1555,18 @@ def given_migrated_memory_without_area(context):
 
 @when("I recall it with an affected-area filter")
 def when_recall_migrated_area(context):
+    run_zmem(context, "recall")
+    context.legacy_unfiltered = _json_result(context)
     run_zmem(context, "recall", "--area", "unrelated/subtree")
     context.payload = _json_result(context)
 
 
-@then("the entry reports null affected areas and remains visible")
-def then_legacy_memory_is_global(context):
+@then("the rebuilt entry has its Git affected area and unrelated areas do not match")
+def then_legacy_memory_has_rebuilt_provenance(context):
     assert context.completed.returncode == 0
-    assert context.payload["count"] == 1
-    assert context.payload["results"][0]["affected_areas"] is None
+    assert context.legacy_unfiltered["count"] == 1
+    assert context.legacy_unfiltered["results"][0]["affected_areas"] == ["<root>"]
+    assert context.payload["count"] == 0
 
 
 @given("a new commit changing a root file, sibling paths under a, and one subtree under b")
@@ -1803,3 +1822,99 @@ def then_effect_only_updates_target(context):
     target = next(row for row in context.payload["results"] if row["sha"] == context.effect_target)
     assert target["owner"] == "effect"
     assert all(row["sha"] != context.effect_only_head for row in context.payload["results"])
+
+
+@given("an isolated cached trail and a separate cold indexing job")
+def given_cached_trail_and_cold_job(context):
+    init_repo(context)
+    context.cached_oid = commit(context, "feat: cached", "zmem(DECISION): cached lookup")
+    cached_repo = context.repo
+    context.cold_repo = context.temp_root / "cold-repo"
+    context.repo = context.cold_repo
+    init_repo(context)
+    commit(context, "feat: cold", "zmem(DECISION): cold indexing")
+    context.repo = cached_repo
+
+    context.cold_marker = context.temp_root / "cold-host-started"
+    context.deep_marker = context.temp_root / "deep-host-started"
+    context.deep_flag = context.temp_root / "slow-deep-check"
+    host = context.env.pop("ZMEM_EXTENSION_HOST")
+    context.env["REAL_ZMEM_HOST"] = host
+    context.env["COLD_MARKER"] = str(context.cold_marker)
+    context.env["DEEP_MARKER"] = str(context.deep_marker)
+    context.env["DEEP_FLAG"] = str(context.deep_flag)
+    script = context.temp_root / "slow-host.py"
+    script.write_text(
+        "import json,os,subprocess,sys,time\n"
+        "from pathlib import Path\n"
+        "data=sys.stdin.buffer.read()\n"
+        "request=json.loads(data)\n"
+        "if request.get('operation')=='expand':\n"
+        " if 'cold-repo' in request.get('repo',''):\n"
+        "  Path(os.environ['COLD_MARKER']).write_text('started')\n"
+        "  time.sleep(3)\n"
+        " elif Path(os.environ['DEEP_FLAG']).exists():\n"
+        "  Path(os.environ['DEEP_MARKER']).write_text('started')\n"
+        "  time.sleep(3)\n"
+        "result=subprocess.run([os.environ['REAL_ZMEM_HOST']],input=data,capture_output=True)\n"
+        "sys.stdout.buffer.write(result.stdout)\n"
+        "sys.stderr.buffer.write(result.stderr)\n"
+        "sys.exit(result.returncode)\n"
+    )
+    (context.home / "config.toml").write_text(
+        f"max_concurrency = 3\nextension_host = {json.dumps(sys.executable)}\n"
+        f"extension_host_args = {json.dumps([str(script)])}\n"
+    )
+    run_zmem(context, "recall", "--trail")
+    assert context.completed.returncode == 0, (context.completed.stdout, context.completed.stderr)
+    assert json.loads(context.completed.stdout)["trail"]["resolved_oid"] == context.cached_oid
+    cold = subprocess.run(
+        [context.env["ZMEM_SVC"], "query", str(context.cold_repo), "--timeout-ms", "10000"],
+        env=context.env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert cold.returncode != 0 and json.loads(cold.stderr)["code"] == "not_ready", (
+        cold.stdout,
+        cold.stderr,
+    )
+    context.cold_job = json.loads(cold.stderr)["job_id"]
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not context.cold_marker.exists():
+        time.sleep(0.02)
+    assert context.cold_marker.exists(), "cold indexing host did not start"
+
+
+@when("a deep check exceeds its client deadline during replay")
+def when_client_deep_check_times_out(context):
+    context.deep_flag.write_text("slow")
+    message = context.temp_root / "PROPOSED_MSG"
+    message.write_text("feat: hypothetical\n\nzmem(DECISION): hypothetical only")
+    started = time.monotonic()
+    run_zmem(context, "--timeout-ms", "1500", "check", "--deep", "--file", str(message))
+    context.deep_elapsed = time.monotonic() - started
+    context.deep_failure = json.loads(context.completed.stdout)
+    context.deep_exit = context.completed.returncode
+
+
+@then("the check reports timeout and the exact cached trail remains available")
+def then_timeout_preserves_cached_trail(context):
+    assert context.deep_marker.exists(), "deep replay did not reach the slow host"
+    assert context.deep_exit == 4, context.deep_failure
+    assert context.deep_failure["code"] == "timeout", context.deep_failure
+    assert "ok" not in context.deep_failure
+    assert context.deep_elapsed < 2.5
+    run_zmem(context, "recall", "--trail")
+    assert context.completed.returncode == 0, (context.completed.stdout, context.completed.stderr)
+    payload = json.loads(context.completed.stdout)
+    assert payload["trail"]["resolved_oid"] == context.cached_oid
+    assert [row["content"] for row in payload["results"]] == ["cached lookup"]
+    status = subprocess.run(
+        [context.env["ZMEM_SVC"], "status", "--timeout-ms", "1000"],
+        env=context.env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert status.returncode == 0 and json.loads(status.stdout)["running"] is True

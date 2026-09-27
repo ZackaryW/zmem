@@ -8,11 +8,12 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
-from zmem.client import ServiceError
+from zmem.client import ServiceError, remaining_ms
 from zmem.client import check as service_check
 from zmem.client import query as service_query
 from zmem.service import ServiceManagementError
@@ -24,21 +25,23 @@ from zmem.utils.output import envelope, render_human
 from zmem.utils.trails import observe_ref
 
 
-def _repo_root(path: Path) -> Path:
+def _repo_root(path: Path, *, deadline: float | None = None) -> Path:
     completed = subprocess.run(
-        ["git", "-C", str(path), "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False,
+        timeout=remaining_ms(deadline) / 1000 if deadline is not None else None,
     )
     if completed.returncode:
         raise ValueError(f"not a Git repository: {path}")
     return Path(completed.stdout.strip()).resolve()
 
 
-def _resolve(repo: Path, value: str) -> str | None:
+def _resolve(repo: Path, value: str, *, deadline: float | None = None) -> str | None:
     completed = subprocess.run(
         ["git", "-C", str(repo), "rev-parse", "--verify", f"{value}^{{commit}}"],
         capture_output=True,
         text=True,
         check=False,
+        timeout=remaining_ms(deadline) / 1000 if deadline is not None else None,
     )
     return completed.stdout.strip() if completed.returncode == 0 else None
 
@@ -53,6 +56,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--human", action="store_true")
     parser.add_argument("--commit-limit", type=int)
     parser.add_argument("--node-limit", type=int)
+    parser.add_argument("--timeout-ms", type=_positive_timeout)
     sub = parser.add_subparsers(dest="command", required=True)
     recall = sub.add_parser("recall")
     recall.add_argument("--event", action="append")
@@ -109,6 +113,16 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _positive_timeout(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--timeout-ms must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("--timeout-ms must be a positive integer")
+    return parsed
+
+
 def run(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -123,6 +137,7 @@ def run(argv: list[str] | None = None) -> int:
                 "service_action",
                 "commit_limit",
                 "node_limit",
+                "timeout_ms",
             ):
                 options.pop(key, None)
             payload = service_dispatch(
@@ -138,7 +153,9 @@ def run(argv: list[str] | None = None) -> int:
             node_limit=args.node_limit,
             environ=os.environ,
         )
-        repo = _repo_root(args.repo)
+        timeout_ms = args.timeout_ms if args.timeout_ms is not None else (120_000 if args.command == "check" else 2_000)
+        deadline = time.monotonic() + timeout_ms / 1000
+        repo = _repo_root(args.repo, deadline=deadline)
         if args.command == "check":
             if args.max_subject_length is not None and args.max_subject_length < 1:
                 raise ValueError("--max-subject-length must be positive")
@@ -147,7 +164,7 @@ def run(argv: list[str] | None = None) -> int:
                     raise ValueError("checking an existing commit requires --deep")
                 if args.file is not None or args.stdin:
                     raise ValueError("a commit reference cannot be combined with --file or --stdin")
-                resolved = _resolve(repo, args.reference)
+                resolved = _resolve(repo, args.reference, deadline=deadline)
                 if resolved is None:
                     raise LookupError(f"commit not found: {args.reference}")
                 message = subprocess.run(
@@ -155,6 +172,7 @@ def run(argv: list[str] | None = None) -> int:
                     capture_output=True,
                     text=True,
                     check=True,
+                    timeout=remaining_ms(deadline) / 1000,
                 ).stdout.rstrip("\r\n")
                 proposed = None
                 reference = resolved
@@ -175,7 +193,9 @@ def run(argv: list[str] | None = None) -> int:
                 reference=reference,
                 deep=args.deep,
                 attention=attention_policy,
+                deadline=deadline,
             )
+            remaining_ms(deadline)
             attention = attention_metadata(native)
             diagnostics = list(native.get("diagnostics", []))
             diagnostics.extend(
@@ -202,15 +222,18 @@ def run(argv: list[str] | None = None) -> int:
                 "diagnostics": diagnostics,
                 "attention": attention,
             }
+            remaining_ms(deadline)
             _emit(payload, args.human)
             return 0 if ok else 5
-        observed = observe_ref(repo, args.trail_ref)
+        observed = observe_ref(repo, args.trail_ref, timeout=remaining_ms(deadline) / 1000)
         snapshot = service_query(
             repo,
             include_invalid=True,
             attention=attention_policy,
             observed=observed,
+            deadline=deadline,
         )
+        remaining_ms(deadline)
         attention = attention_metadata(snapshot["summary"])
         trail = snapshot["summary"]["trail"]
         output_trail = trail if args.trail else None
@@ -219,6 +242,7 @@ def run(argv: list[str] | None = None) -> int:
             if args.events:
                 counts = Counter(row["type"] for row in rows if row["valid"])
                 result = [{"event": event, "count": count} for event, count in counts.most_common()]
+                remaining_ms(deadline)
                 _emit(envelope("recall", result, attention=attention, trail=output_trail), args.human)
                 return 0
             rows = [row for row in rows if row["valid"]]
@@ -236,7 +260,7 @@ def run(argv: list[str] | None = None) -> int:
                     )
                 ]
             if args.since:
-                boundary = _resolve(repo, args.since)
+                boundary = _resolve(repo, args.since, deadline=deadline)
                 if boundary:
                     revision_command = ["git", "-C", str(repo), "rev-list"]
                     if attention_policy.commit_limit != -1:
@@ -247,6 +271,7 @@ def run(argv: list[str] | None = None) -> int:
                         capture_output=True,
                         text=True,
                         check=True,
+                        timeout=remaining_ms(deadline) / 1000,
                     ).stdout.splitlines()
                     allowed = {boundary, *walked}
                     rows = [row for row in rows if row["sha"] in allowed]
@@ -264,6 +289,7 @@ def run(argv: list[str] | None = None) -> int:
             truncated = args.limit is not None and len(rows) > args.limit
             if args.limit is not None:
                 rows = rows[: args.limit]
+            remaining_ms(deadline)
             _emit(envelope("recall", rows, truncated, attention, output_trail), args.human)
         elif args.command == "search":
             if not args.include_invalid:
@@ -289,9 +315,10 @@ def run(argv: list[str] | None = None) -> int:
             truncated = args.limit is not None and len(rows) > args.limit
             if args.limit is not None:
                 rows = rows[: args.limit]
+            remaining_ms(deadline)
             _emit(envelope("search", rows, truncated, attention, output_trail), args.human)
         elif args.command == "show":
-            sha = _resolve(repo, args.sha)
+            sha = _resolve(repo, args.sha, deadline=deadline)
             if sha is None:
                 raise LookupError(f"commit not found: {args.sha}")
             commit_rows = [row for row in rows if row["sha"] == sha]
@@ -300,12 +327,14 @@ def run(argv: list[str] | None = None) -> int:
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=remaining_ms(deadline) / 1000,
             ).stdout.split("\0", 3)
             paths = subprocess.run(
                 ["git", "-C", str(repo), "show", "--format=", "--name-status", sha],
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=remaining_ms(deadline) / 1000,
             ).stdout.splitlines()
             result = {
                 "sha": sha,
@@ -317,8 +346,10 @@ def run(argv: list[str] | None = None) -> int:
             }
             if args.diff_content:
                 result["diff"] = subprocess.run(
-                    ["git", "-C", str(repo), "show", "--format=", sha], capture_output=True, text=True, check=True
+                    ["git", "-C", str(repo), "show", "--format=", sha], capture_output=True, text=True, check=True,
+                    timeout=remaining_ms(deadline) / 1000,
                 ).stdout
+            remaining_ms(deadline)
             _emit(envelope("show", [result], attention=attention, trail=output_trail), args.human)
         else:
             relationships = snapshot.get("relationships", [])
@@ -328,6 +359,7 @@ def run(argv: list[str] | None = None) -> int:
                 relationships = [row for row in relationships if row["to"] == args.target]
             if args.min_score is not None:
                 relationships = [row for row in relationships if row["score"] >= args.min_score]
+            remaining_ms(deadline)
             _emit(envelope("links", relationships, attention=attention, trail=output_trail), args.human)
         return 0
     except ValueError as exc:
@@ -337,7 +369,11 @@ def run(argv: list[str] | None = None) -> int:
         print(json.dumps({"command": args.command, "category": "target", "error": str(exc)}))
         return 3
     except ServiceError as exc:
-        print(json.dumps({"command": args.command, "category": exc.category, "error": str(exc)}))
+        print(json.dumps({"command": args.command, **exc.to_mapping()}))
+        return 4
+    except subprocess.TimeoutExpired:
+        print(json.dumps({"command": args.command, **ServiceError(
+            "service request deadline expired", code="timeout", retryable=True).to_mapping()}))
         return 4
     except (ServiceManagementError, OSError, subprocess.SubprocessError) as exc:
         print(json.dumps({"command": args.command, "category": "service", "error": str(exc)}))

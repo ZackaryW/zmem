@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 from zmem.utils.attention import AttentionPolicy
@@ -14,9 +15,55 @@ from zmem.utils.trails import ObservedRef, TrailSummary
 
 
 class ServiceError(RuntimeError):
-    def __init__(self, message: str, *, category: str = "service") -> None:
+    def __init__(self, message: str, *, category: str = "service", code: str = "service", retryable: bool = False,
+                 job_id: str | None = None, retry_after_ms: int | None = None,
+                 requested_oid: str | None = None, stage: str | None = None) -> None:
         super().__init__(message)
         self.category = category
+        self.code = code
+        self.retryable = retryable
+        self.job_id = job_id
+        self.retry_after_ms = retry_after_ms
+        self.requested_oid = requested_oid
+        self.stage = stage
+
+    def to_mapping(self) -> dict[str, object]:
+        payload: dict[str, object] = {"category": self.category, "error": str(self), "code": self.code,
+                                      "retryable": self.retryable}
+        for field in ("job_id", "retry_after_ms", "requested_oid", "stage"):
+            if (value := getattr(self, field)) is not None:
+                payload[field] = value
+        return payload
+
+
+def _raise_native_error(stderr: str, fallback: str) -> None:
+    try:
+        payload = json.loads(stderr.strip())
+    except json.JSONDecodeError as exc:
+        if "unrecognized subcommand" in stderr or "unexpected argument" in stderr:
+            raise ServiceError("service does not support this request; run `zmem service upgrade`",
+                               code="protocol") from exc
+        raise ServiceError(f"service returned invalid error JSON: {stderr.strip() or fallback}", code="protocol") from exc
+    if (not isinstance(payload, dict) or not isinstance(payload.get("code"), str)
+            or not payload["code"] or not isinstance(payload.get("message"), str)
+            or type(payload.get("retryable")) is not bool):
+        raise ServiceError("service returned invalid error JSON", code="protocol")
+    for key in ("job_id", "requested_oid", "stage"):
+        if key in payload and not isinstance(payload[key], str):
+            raise ServiceError("service returned invalid error JSON", code="protocol")
+    if "retry_after_ms" in payload and (type(payload["retry_after_ms"]) is not int or payload["retry_after_ms"] < 0):
+        raise ServiceError("service returned invalid error JSON", code="protocol")
+    raise ServiceError(payload["message"], category="stale_ref" if payload["code"] == "stale_ref" else "service",
+                       code=payload["code"], retryable=payload["retryable"],
+                       job_id=payload.get("job_id"), retry_after_ms=payload.get("retry_after_ms"),
+                       requested_oid=payload.get("requested_oid"), stage=payload.get("stage"))
+
+
+def remaining_ms(deadline: float) -> int:
+    remaining = int((deadline - time.monotonic()) * 1000)
+    if remaining <= 0:
+        raise ServiceError("service request deadline expired", code="timeout", retryable=True)
+    return remaining
 
 
 def _service_binary() -> str:
@@ -47,7 +94,9 @@ def query(
     include_invalid: bool = True,
     attention: AttentionPolicy | None = None,
     observed: ObservedRef | None = None,
+    deadline: float | None = None,
 ) -> dict:
+    deadline = deadline if deadline is not None else time.monotonic() + 2
     executable = _service_binary()
     command = [executable, "query", str(repo)]
     if include_invalid:
@@ -57,14 +106,16 @@ def query(
             command.extend(("--ref", observed.selector))
         command.extend(("--observed-oid", observed.oid))
     _append_attention(command, attention)
+    command.extend(("--timeout-ms", str(remaining_ms(deadline))))
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        completed = subprocess.run(command, capture_output=True, text=True, check=False,
+                                   timeout=remaining_ms(deadline) / 1000)
+    except subprocess.TimeoutExpired as exc:
+        raise ServiceError("service request deadline expired", code="timeout", retryable=True) from exc
     except OSError as exc:
         raise ServiceError(f"service unavailable: {exc}") from exc
     if completed.returncode:
-        detail = completed.stderr.strip() or "service request failed"
-        category = "stale_ref" if "stale ref:" in detail else "service"
-        raise ServiceError(detail, category=category)
+        _raise_native_error(completed.stderr, "service request failed")
     try:
         payload = json.loads(completed.stdout)
         if not isinstance(payload, dict) or not isinstance(payload.get("summary"), dict):
@@ -83,7 +134,9 @@ def check(
     reference: str | None,
     deep: bool,
     attention: AttentionPolicy | None = None,
+    deadline: float | None = None,
 ) -> dict:
+    deadline = deadline if deadline is not None else time.monotonic() + 120
     if (message is None) == (reference is None):
         raise ValueError("exactly one proposed message or commit reference is required")
     executable = _service_binary()
@@ -93,6 +146,7 @@ def check(
     if reference is not None:
         command.extend(("--ref", reference))
     _append_attention(command, attention)
+    command.extend(("--timeout-ms", str(remaining_ms(deadline))))
     try:
         completed = subprocess.run(
             command,
@@ -100,14 +154,14 @@ def check(
             capture_output=True,
             text=True,
             check=False,
+            timeout=remaining_ms(deadline) / 1000,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise ServiceError("service check deadline expired", code="timeout", retryable=True) from exc
     except OSError as exc:
         raise ServiceError(f"service unavailable: {exc}") from exc
     if completed.returncode:
-        detail = completed.stderr.strip() or "service check failed"
-        if "unrecognized subcommand" in detail or "unexpected argument" in detail:
-            detail = "service does not support commit checking; run `zmem service upgrade`"
-        raise ServiceError(detail)
+        _raise_native_error(completed.stderr, "service check failed")
     try:
         return json.loads(completed.stdout)
     except json.JSONDecodeError as exc:

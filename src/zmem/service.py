@@ -103,7 +103,9 @@ def _load_manifest(paths: RuntimePaths) -> RuntimeManifest:
 
 def _stop_binary(binary: Path, paths: RuntimePaths) -> None:
     try:
-        _run_binary(binary, "stop", paths=paths, timeout=10)
+        _, before = _run_binary(binary, "status", paths=paths, timeout=5)
+        prior_pid = before.get("pid") if isinstance(before, Mapping) else None
+        _run_binary(binary, "stop", "--timeout-ms", "10000", paths=paths, timeout=12)
     except ServiceManagementError:
         return
     deadline = time.monotonic() + 5
@@ -113,22 +115,41 @@ def _stop_binary(binary: Path, paths: RuntimePaths) -> None:
         except ServiceManagementError:
             return
         if isinstance(payload, Mapping) and payload.get("running") is False:
+            if os.name == "nt" and type(prior_pid) is int:
+                import ctypes
+
+                kernel = ctypes.windll.kernel32
+                handle = kernel.OpenProcess(0x00100000, False, prior_pid)
+                if handle:
+                    try:
+                        kernel.WaitForSingleObject(handle, 5000)
+                    finally:
+                        kernel.CloseHandle(handle)
             return
         time.sleep(0.025)
 
 
 def _healthcheck(paths: RuntimePaths, manifest: RuntimeManifest) -> bool:
-    completed, _payload = _run_binary(manifest.binary, "ensure", paths=paths, timeout=15)
+    completed, _payload = _run_binary(
+        manifest.binary, "ensure", "--timeout-ms", "10000", paths=paths, timeout=12
+    )
     if completed.returncode:
         return False
-    completed, payload = _run_binary(manifest.binary, "status", paths=paths, timeout=10)
-    return bool(
-        completed.returncode == 0
-        and isinstance(payload, Mapping)
-        and payload.get("running") is True
-        and payload.get("protocol_version") == manifest.protocol_version
-        and payload.get("schema_version") == manifest.schema_version
-    )
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        completed, payload = _run_binary(
+            manifest.binary, "status", "--timeout-ms", "2000", paths=paths, timeout=3
+        )
+        if (
+            completed.returncode == 0
+            and isinstance(payload, Mapping)
+            and payload.get("running") is True
+            and payload.get("protocol_version") == manifest.protocol_version
+            and payload.get("schema_version") == manifest.schema_version
+        ):
+            return True
+        time.sleep(0.025)
+    return False
 
 
 def status(paths: RuntimePaths) -> dict[str, Any]:
@@ -240,7 +261,12 @@ def _replace_runtime(
     elif not existing:
         _stop_binary(source, paths)
     try:
-        manifest = activate_runtime(paths, staged, lambda candidate: _healthcheck(paths, candidate))
+        manifest = activate_runtime(
+            paths,
+            staged,
+            lambda candidate: _healthcheck(paths, candidate),
+            stop_on_failure=lambda: _stop_binary(paths.binary, paths),
+        )
     except Exception as exc:
         if paths.manifest.is_file():
             restored = _load_manifest(paths)

@@ -1,8 +1,10 @@
+import json
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from zmem.cli import run as run_cli
 from zmem.client import ServiceError
 from zmem.client import check as service_check
 from zmem.host import expand_request
@@ -95,7 +97,7 @@ def test_service_check_passes_proposed_message_on_stdin(monkeypatch, tmp_path: P
     monkeypatch.setattr("zmem.client.subprocess.run", completed)
 
     assert service_check(tmp_path, message="feat: proposed", reference=None, deep=True) == {"ok": True}
-    assert observed["command"] == [
+    assert observed["command"][:8] == [
         "zmem-svc",
         "check",
         str(tmp_path),
@@ -105,6 +107,8 @@ def test_service_check_passes_proposed_message_on_stdin(monkeypatch, tmp_path: P
         "--node-limit",
         "400",
     ]
+    assert observed["command"][8] == "--timeout-ms"
+    assert int(observed["command"][9]) > 0
     assert observed["options"]["input"] == "feat: proposed"
 
 
@@ -122,3 +126,24 @@ def test_unsupported_native_check_requests_upgrade(monkeypatch, tmp_path: Path):
 
     with pytest.raises(ServiceError, match="service upgrade"):
         service_check(tmp_path, message="feat: proposed", reference=None, deep=False)
+
+
+@pytest.mark.parametrize("code", ["timeout", "busy", "not_ready"])
+def test_cli_check_service_delay_exits_four_without_validation_result(monkeypatch, tmp_path: Path, capsys, code):
+    message = tmp_path / "message.txt"
+    message.write_text("feat: proposed\n\nzmem(DECISION): valid")
+    monkeypatch.setattr("zmem.cli._repo_root", lambda _path, *, deadline: tmp_path)
+
+    def delayed(*_args, **_kwargs):
+        raise ServiceError("native work delayed", code=code, retryable=True)
+
+    monkeypatch.setattr("zmem.cli.service_check", delayed)
+    assert run_cli(["check", "--file", str(message)]) == 4
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "command": "check",
+        "category": "service",
+        "error": "native work delayed",
+        "code": code,
+        "retryable": True,
+    }

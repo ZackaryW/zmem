@@ -21,7 +21,7 @@ from typing import Any
 from zmem.utils.protocol import PROTOCOL_VERSION
 
 MANIFEST_VERSION = 2
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
@@ -315,6 +315,8 @@ def activate_runtime(
     paths: RuntimePaths,
     staged: StagedRuntime,
     healthcheck: Callable[[RuntimeManifest], bool],
+    *,
+    stop_on_failure: Callable[[], None] | None = None,
 ) -> RuntimeManifest:
     active_items = (paths.binary_dir, paths.host_dir, paths.manifest)
     staged_items = (staged.root / "binary", staged.root / "host", staged.root / "runtime.json")
@@ -333,6 +335,8 @@ def activate_runtime(
         if not healthcheck(staged.manifest):
             raise RuntimeError("replacement runtime failed its health check")
     except Exception:
+        if stop_on_failure is not None:
+            stop_on_failure()
         for active in active_items:
             _remove_runtime_item(active)
         if had_active:

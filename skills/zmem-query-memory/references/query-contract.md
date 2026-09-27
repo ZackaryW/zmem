@@ -2,6 +2,8 @@
 
 Place the global `--repo` and optional `--human` arguments before the subcommand. JSON is the default output and should be preserved for structured processing.
 
+Place a positive global `--timeout-ms` before the subcommand when the default 2000 ms repository-query deadline is insufficient. A cold exact snapshot can return a structured `not_ready` error with a `job_id`, `requested_oid`, `stage`, and `retry_after_ms`; no memory entries were returned in that case. Inspect the native job with `zmem-svc job-status <job-id>` and retry the original query explicitly when appropriate. If it failed, explain the cause before suggesting `zmem-svc job-retry <job-id>`, since expansion hooks may have run before failure. `busy`, `timeout`, and `stale_ref` are distinct outcomes. Do not create a polling loop or silently substitute an older HEAD.
+
 ## Commands
 
 ```text

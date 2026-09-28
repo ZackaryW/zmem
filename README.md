@@ -109,7 +109,7 @@ zmem --timeout-ms 5000 --repo . recall --since HEAD~50
 
 Repository errors, missing commits, and service errors use distinct nonzero exit categories and structured error payloads. Snapshot commands default to a 2000 ms execution deadline; `check` defaults to 120000 ms. Set a positive global `--timeout-ms` before the subcommand to override it. The deadline starts after argument validation and covers repository/ref discovery, the native call, and request-owned Git show or diff. On timeout, the client allows at most one additional second to terminate and reap its owned subprocess; the shared daemon continues running. Slow caller-provided stdin and terminal output are outside this execution budget.
 
-A cold query can return exit code 4 with `{"category":"service","code":"not_ready","retryable":true,"job_id":"job-<hex>","requested_oid":"<oid>","stage":"queued","retry_after_ms":250,...}`. It means that exact HEAD is indexing; it is not an empty successful result or an invalid annotation. The native `zmem-svc job-status <job-id>` command reports `queued`, `running`, `ready`, or `failed`; retry the same query explicitly after the job is ready. A failed job stays failed across restarts until a user explicitly invokes `zmem-svc job-retry <job-id>` after addressing its cause. `busy` and `timeout` are separate retryable service codes; `stale_ref` means the selector moved and needs a fresh observation. The CLI does not poll or automatically retry. A completed invalid check remains a semantic exit 5, while service delay or failure exits 4.
+A cold query can return exit code 4 with `{"category":"service","code":"not_ready","retryable":true,"job_id":"job-<hex>","requested_oid":"<oid>","stage":"queued","retry_after_ms":250,...}`. It means that exact HEAD is indexing; it is not an empty successful result or an invalid annotation. The native `zmem-svc job-status <job-id>` command reports `queued`, `running`, `ready`, `failed`, or `obsolete`; retry the same query explicitly after the job is ready. A failed job stays failed across restarts until a user explicitly invokes `zmem-svc job-retry <job-id>` after addressing its cause. `busy` and `timeout` are separate retryable service codes; `stale_ref` means the selector moved and needs a fresh observation. The CLI does not poll or automatically retry. A completed invalid check remains a semantic exit 5, while service delay or failure exits 4.
 
 Release or rollback must keep the client and native protocol/schema pair compatible. Publish a matching native binary before selecting it from a Python release. To roll back, stop the service, restore a matching pair, and restore a pre-upgrade database backup or rebuild the derived cache in a separate `ZMEM_HOME`; an older native writer must never open schema 6.
 
@@ -128,7 +128,7 @@ The implementation layout is intentional:
 - `zmem/utils` contains reusable parsing, discovery, protocol, and output utilities.
 - `zmem/ext/expander` defines behavioral expanders and `ExpansionContext`.
 - `zmem/ext/hooks` defines read-only additional actions.
-- `zmem/builtin` contains built-in DECISION, LESSON_LEARNT, DECAY, and CANCEL implementations.
+- `zmem/builtin` contains built-in DECISION, LESSON_LEARNT, DECAY, CANCEL, and META implementations.
 
 User extensions are importable Python files under `~/.zmem/ext/expanders` or `~/.zmem/ext/hooks`. Repository extensions use `${ZMEM_CUSTOM_EXT_ROOT:-.zmem}/{extend,overwrite}/{expanders,hooks}` and require repository trust in `zmem-svc`.
 
